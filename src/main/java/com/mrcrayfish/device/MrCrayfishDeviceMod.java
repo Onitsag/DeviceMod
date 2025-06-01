@@ -12,6 +12,7 @@ import com.mrcrayfish.device.core.task.TaskInstallApp;
 import com.mrcrayfish.device.entity.EntitySeat;
 import com.mrcrayfish.device.event.BankEvents;
 import com.mrcrayfish.device.event.EmailEvents;
+import com.mrcrayfish.device.event.PoliceEvents;
 import com.mrcrayfish.device.gui.GuiHandler;
 import com.mrcrayfish.device.init.DeviceTileEntites;
 import com.mrcrayfish.device.init.RegistrationHandler;
@@ -23,6 +24,9 @@ import com.mrcrayfish.device.programs.email.task.*;
 import com.mrcrayfish.device.programs.example.ApplicationExample;
 import com.mrcrayfish.device.programs.example.task.TaskNotificationTest;
 import com.mrcrayfish.device.programs.gitweb.ApplicationGitWeb;
+import com.mrcrayfish.device.programs.police.ApplicationPolice;
+import com.mrcrayfish.device.programs.ApplicationNoteStash;
+import com.mrcrayfish.device.programs.ApplicationPixelPainter;
 import com.mrcrayfish.device.programs.system.ApplicationAppStore;
 import com.mrcrayfish.device.programs.system.ApplicationBank;
 import com.mrcrayfish.device.programs.system.ApplicationFileBrowser;
@@ -43,6 +47,9 @@ import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.registry.EntityRegistry;
 import org.apache.logging.log4j.Logger;
+import com.mrcrayfish.device.programs.police.task.TaskAddPoliceReport;
+import com.mrcrayfish.device.programs.police.task.TaskDeletePoliceReport;
+import com.mrcrayfish.device.programs.police.task.TaskRequestPoliceReports;
 
 @Mod(modid = Reference.MOD_ID, name = Reference.NAME, version = Reference.VERSION, acceptedMinecraftVersions = Reference.WORKING_MC_VERSION)
 public class MrCrayfishDeviceMod 
@@ -91,6 +98,7 @@ public class MrCrayfishDeviceMod
 
 		MinecraftForge.EVENT_BUS.register(new EmailEvents());
 		MinecraftForge.EVENT_BUS.register(new BankEvents());
+		MinecraftForge.EVENT_BUS.register(new PoliceEvents());
 
 		registerApplications();
 
@@ -114,6 +122,7 @@ public class MrCrayfishDeviceMod
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "pixel_painter"), ApplicationPixelPainter.class);
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "ender_mail"), ApplicationEmail.class);
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "app_store"), ApplicationAppStore.class);
+		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "police"), ApplicationPolice.class);
 
 		// Core
 		TaskManager.registerTask(TaskInstallApp.class);
@@ -146,6 +155,11 @@ public class MrCrayfishDeviceMod
 		TaskManager.registerTask(TaskRegisterEmailAccount.class);
 		TaskManager.registerTask(TaskDeleteEmail.class);
 		TaskManager.registerTask(TaskViewEmail.class);
+
+		// Police
+		TaskManager.registerTask(TaskAddPoliceReport.class);
+		TaskManager.registerTask(TaskDeletePoliceReport.class);
+		TaskManager.registerTask(TaskRequestPoliceReports.class);
 
 		if(!DEVELOPER_MODE)
 		{

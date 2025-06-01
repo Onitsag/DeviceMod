@@ -834,4 +834,11 @@ public class Laptop extends GuiScreen implements System
 		context = null;
 		dragging = false;
 	}
+
+	/**
+	 * Retourne la liste des fenêtres ouvertes (null inclus pour les slots vides)
+	 */
+	public com.mrcrayfish.device.core.Window[] getOpenWindows() {
+		return this.windows;
+	}
 }
