@@ -5,7 +5,7 @@ public class TimeUtil
 	public static String getTotalRealTime(long ticks)
 	{
 		int days = (int) (ticks / 1728000);
-		int hours = (int) Math.floor(ticks / 24000.0) % 24;
+		int hours = (int) Math.floor(ticks / 72000.0) % 24;
 	    int minutes = (int) Math.floor(ticks / 1200) % 60;
 	    int seconds = (int) Math.floor(ticks / 20) % 60;
 	    if(days > 0) 
