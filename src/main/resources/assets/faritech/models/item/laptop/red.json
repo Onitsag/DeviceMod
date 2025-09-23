@@ -1,0 +1,6 @@
+{
+    "parent": "faritech:item/laptop",
+    "textures": {
+        "2": "blocks/wool_colored_red"
+    }
+}

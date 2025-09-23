@@ -1,0 +1,6 @@
+{
+    "parent": "faritech:item/router",
+    "textures": {
+        "1": "blocks/wool_colored_yellow"
+    }
+}

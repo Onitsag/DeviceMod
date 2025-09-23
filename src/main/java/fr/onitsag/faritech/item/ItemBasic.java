@@ -1,0 +1,17 @@
+package fr.onitsag.faritech.item;
+
+import fr.onitsag.faritech.FariTechMod;
+import net.minecraft.item.Item;
+
+/**
+ * Author: MrCrayfish
+ */
+public class ItemBasic extends Item
+{
+    public ItemBasic(String id)
+    {
+        this.setUnlocalizedName(id);
+        this.setRegistryName(id);
+        this.setCreativeTab(FariTechMod.TAB_DEVICE);
+    }
+}

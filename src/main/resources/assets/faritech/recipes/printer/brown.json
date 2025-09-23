@@ -1,0 +1,33 @@
+{
+    "result": {
+        "item": "faritech:printer",
+        "data": 12
+    },
+    "pattern": [
+        "PSP",
+        "MCB",
+        "PDP"
+    ],
+    "type": "minecraft:crafting_shaped",
+    "key": {
+        "D": {
+            "item": "minecraft:dye",
+            "data": 3
+        },
+        "P": {
+            "item": "faritech:plastic_frame"
+        },
+        "S": {
+            "item": "faritech:screen"
+        },
+        "M": {
+            "item": "faritech:small_electric_motor"
+        },
+        "C": {
+            "item": "faritech:carriage"
+        },
+        "B": {
+            "item": "faritech:controller_unit"
+        }
+    }
+}

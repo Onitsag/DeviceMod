@@ -1,0 +1,33 @@
+{
+    "result": {
+        "item": "faritech:router",
+        "data": 1
+    },
+    "pattern": [
+        "RDR",
+        "PPP",
+        "WCB"
+    ],
+    "type": "minecraft:crafting_shaped",
+    "key": {
+        "D": {
+            "item": "minecraft:dye",
+            "data": 14
+        },
+        "R": {
+            "item": "minecraft:end_rod"
+        },
+        "P": {
+            "item": "faritech:plastic_frame"
+        },
+        "W": {
+            "item": "faritech:wifi"
+        },
+        "C": {
+            "item": "faritech:circuit_board"
+        },
+        "B": {
+            "item": "faritech:battery"
+        }
+    }
+}

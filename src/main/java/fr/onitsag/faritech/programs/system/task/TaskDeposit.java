@@ -1,0 +1,64 @@
+package fr.onitsag.faritech.programs.system.task;
+
+import fr.onitsag.faritech.api.task.Task;
+import fr.onitsag.faritech.api.utils.BankUtil;
+import fr.onitsag.faritech.programs.system.object.Account;
+import fr.onitsag.faritech.util.InventoryUtil;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Items;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.world.World;
+
+/**
+ * Author: MrCrayfish
+ */
+public class TaskDeposit extends Task
+{
+    private int amount;
+
+    protected TaskDeposit()
+    {
+        super("bank_deposit");
+    }
+
+    public TaskDeposit(int amount)
+    {
+        this();
+        this.amount = amount;
+    }
+
+    @Override
+    public void prepareRequest(NBTTagCompound nbt)
+    {
+        nbt.setInteger("amount", this.amount);
+    }
+
+    @Override
+    public void processRequest(NBTTagCompound nbt, World world, EntityPlayer player)
+    {
+        Account account = BankUtil.INSTANCE.getAccount(player);
+        int amount = nbt.getInteger("amount");
+        long value = account.getBalance() + amount;
+        if(value > Integer.MAX_VALUE)
+        {
+            amount = Integer.MAX_VALUE - account.getBalance();
+        }
+        if(InventoryUtil.removeItemWithAmount(player, Items.EMERALD, amount))
+        {
+            if(account.deposit(amount))
+            {
+                this.amount = account.getBalance();
+                this.setSuccessful();
+            }
+        }
+    }
+
+    @Override
+    public void prepareResponse(NBTTagCompound nbt)
+    {
+        nbt.setInteger("balance", this.amount);
+    }
+
+    @Override
+    public void processResponse(NBTTagCompound nbt) {}
+}

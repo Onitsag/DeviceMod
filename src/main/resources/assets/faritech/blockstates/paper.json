@@ -1,0 +1,8 @@
+{
+	"variants": {
+		"facing=north": { "model": "faritech:paper" },
+		"facing=east":  { "model": "faritech:paper" },
+		"facing=south": { "model": "faritech:paper" },
+		"facing=west":  { "model": "faritech:paper" }
+	}
+}

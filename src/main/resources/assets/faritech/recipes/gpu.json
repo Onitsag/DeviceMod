@@ -1,0 +1,31 @@
+{
+    "result": {
+        "item": "faritech:gpu"
+    },
+    "pattern": [
+        "OGO",
+        "RMP",
+        "CCC"
+    ],
+    "type": "minecraft:crafting_shaped",
+    "key": {
+        "O": {
+            "item": "minecraft:obsidian"
+        },
+        "G": {
+            "item": "minecraft:gold_ingot"
+        },
+        "R": {
+            "item": "minecraft:redstone"
+        },
+        "M": {
+            "item": "faritech:ram"
+        },
+        "P": {
+            "item": "minecraft:prismarine_shard"
+        },
+        "C": {
+            "item": "faritech:circuit_board"
+        }
+    }
+}

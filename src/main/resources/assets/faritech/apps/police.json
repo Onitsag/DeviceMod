@@ -1,0 +1,8 @@
+{
+    "name": "Police Reports",
+    "author": "MrCrayfish",
+    "description": "Application pour gérer les rapports de police",
+    "version": "1.0.0",
+    "icon": "faritech:textures/app/icon/police.png",
+    "main_class": "com.mrcrayfish.device.programs.police.ApplicationPolice"
+} 
