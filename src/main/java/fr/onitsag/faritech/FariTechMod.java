@@ -18,6 +18,7 @@ import fr.onitsag.faritech.init.DeviceTileEntites;
 import fr.onitsag.faritech.init.RegistrationHandler;
 import fr.onitsag.faritech.network.PacketHandler;
 import fr.onitsag.faritech.programs.*;
+import fr.onitsag.faritech.programs.business.ApplicationBusinessManager;
 import fr.onitsag.faritech.programs.debug.ApplicationTextArea;
 import fr.onitsag.faritech.programs.email.ApplicationEmail;
 import fr.onitsag.faritech.programs.email.task.*;
@@ -123,6 +124,7 @@ public class FariTechMod
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "ender_mail"), ApplicationEmail.class);
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "app_store"), ApplicationAppStore.class);
 		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "police"), ApplicationPolice.class);
+		ApplicationManager.registerApplication(new ResourceLocation(Reference.MOD_ID, "business_manager"), ApplicationBusinessManager.class);
 
 		// Core
 		TaskManager.registerTask(TaskInstallApp.class);
@@ -161,6 +163,9 @@ public class FariTechMod
 		TaskManager.registerTask(TaskDeletePoliceReport.class);
 		TaskManager.registerTask(TaskRequestPoliceReports.class);
 
+		// Business (multijoueur)
+		TaskManager.registerTask(fr.onitsag.faritech.programs.business.task.TaskBusinessAction.class);
+
 		if(!DEVELOPER_MODE)
 		{
 			// Applications (Normal)
@@ -185,6 +190,13 @@ public class FariTechMod
 
 		PrintingManager.registerPrint(new ResourceLocation(Reference.MOD_ID, "picture"), ApplicationPixelPainter.PicturePrint.class);
 	}
+
+    @net.minecraftforge.fml.common.Mod.EventHandler
+    public void onServerStarting(net.minecraftforge.fml.common.event.FMLServerStartingEvent event)
+    {
+        // S’assurer que les listeners BusinessEvents sont enregistrés
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new fr.onitsag.faritech.event.BusinessEvents());
+    }
 
 	public static Logger getLogger()
 	{

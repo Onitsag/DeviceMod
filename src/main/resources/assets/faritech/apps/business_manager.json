@@ -1,0 +1,8 @@
+{
+    "name": "Gestion d'Entreprise",
+    "author": "FariTech",
+    "description": "Application complète de gestion d'entreprise. Gérez vos employés, salaires, stock et comptabilité en toute simplicité. Interface moderne avec rapports détaillés et outils de gestion avancés.",
+    "version": "1.0",
+    "icon": "faritech:textures/app/icon/business_manager.png",
+    "screenshots": []
+}

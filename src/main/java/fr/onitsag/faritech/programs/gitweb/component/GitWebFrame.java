@@ -179,6 +179,13 @@ public class GitWebFrame extends Component
             }
             url = "https://raw.githubusercontent.com/MrCrayfish/GitWeb-Sites/master/" + extension + "/" + domain + directory + "/index";
         }
+        
+        // Gestion des pages manquantes avec redirections
+        if("index.official".equals(website)) {
+            url = "https://raw.githubusercontent.com/MrCrayfish/GitWeb-Sites/master/official/welcome/websites";
+        } else if("submit.official".equals(website)) {
+            url = "https://raw.githubusercontent.com/MrCrayfish/GitWeb-Sites/master/official/welcome/index";
+        }
 
         if(loadingCallback != null)
         {

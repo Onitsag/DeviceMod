@@ -182,7 +182,9 @@ public class Layout extends Component
 		}
 
 		GlStateManager.color(1.0F, 1.0F, 1.0F);
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			GlStateManager.disableDepth();
 			GLHelper.pushScissor(x, y, width, height);
@@ -197,7 +199,9 @@ public class Layout extends Component
 		if(!visible)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.renderOverlay(laptop, mc, mouseX, mouseY, windowActive);
 		}
@@ -209,7 +213,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleKeyTyped(character, code);
 		}
@@ -221,7 +227,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleKeyReleased(character, code);
 		}
@@ -233,7 +241,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleMouseClick(mouseX, mouseY, mouseButton);
 		}
@@ -245,7 +255,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleMouseDrag(mouseX, mouseY, mouseButton);
 		}
@@ -257,7 +269,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleMouseRelease(mouseX, mouseY, mouseButton);
 		}
@@ -269,7 +283,9 @@ public class Layout extends Component
 		if(!visible || !enabled)
 			return;
 
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.handleMouseScroll(mouseX, mouseY, direction);
 		}
@@ -279,7 +295,9 @@ public class Layout extends Component
 	public void updateComponents(int x, int y)
 	{
 		super.updateComponents(x, y);
-		for(Component c : components)
+		// Create a copy to avoid ConcurrentModificationException
+		ArrayList<Component> componentsCopy = new ArrayList<>(components);
+		for(Component c : componentsCopy)
 		{
 			c.updateComponents(x + left, y + top);
 		}

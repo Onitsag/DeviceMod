@@ -406,15 +406,27 @@ public class Image extends Component
                     URL url = new URL(this.url);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-                    BufferedImage bufferedImage = ImageIO.read(conn.getInputStream());
-                    image.imageWidth = bufferedImage.getWidth();
-                    image.imageHeight = bufferedImage.getHeight();
-                    texture = new DynamicTexture(bufferedImage);
+                    conn.setConnectTimeout(5000); // 5 secondes timeout
+                    conn.setReadTimeout(10000); // 10 secondes timeout
+                    
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                        BufferedImage bufferedImage = ImageIO.read(conn.getInputStream());
+                        image.imageWidth = bufferedImage.getWidth();
+                        image.imageHeight = bufferedImage.getHeight();
+                        texture = new DynamicTexture(bufferedImage);
+                    } else {
+                        // Image non trouvée ou erreur, on utilise la texture manquante
+                        System.err.println("Erreur HTTP " + responseCode + " lors du chargement de l'image : " + this.url);
+                        texture = null;
+                    }
                     setup = true;
                 }
                 catch(IOException e)
                 {
-                    e.printStackTrace();
+                    System.err.println("Erreur lors du chargement de l'image : " + this.url + " - " + e.getMessage());
+                    texture = null;
+                    setup = true; // Important : marquer comme terminé même en cas d'erreur
                 }
             };
             Thread thread = new Thread(r, "Image Loader");
@@ -434,14 +446,23 @@ public class Image extends Component
 
             try
             {
-                texture.loadTexture(Minecraft.getMinecraft().getResourceManager());
-                CachedImage cachedImage = new CachedImage(texture.getGlTextureId(), image.imageWidth, image.imageHeight, true);
-                CACHE.put(url, cachedImage);
-                return cachedImage;
+                if(texture != null) {
+                    texture.loadTexture(Minecraft.getMinecraft().getResourceManager());
+                    CachedImage cachedImage = new CachedImage(texture.getGlTextureId(), image.imageWidth, image.imageHeight, true);
+                    CACHE.put(url, cachedImage);
+                    return cachedImage;
+                } else {
+                    // Erreur de chargement, on utilise la texture manquante
+                    CachedImage cachedImage = new CachedImage(TextureUtil.MISSING_TEXTURE.getGlTextureId(), 0, 0, true);
+                    CACHE.put(url, cachedImage);
+                    return cachedImage;
+                }
             }
             catch(IOException e)
             {
-                return new CachedImage(TextureUtil.MISSING_TEXTURE.getGlTextureId(), 0, 0, true);
+                CachedImage cachedImage = new CachedImage(TextureUtil.MISSING_TEXTURE.getGlTextureId(), 0, 0, true);
+                CACHE.put(url, cachedImage);
+                return cachedImage;
             }
         }
     }
