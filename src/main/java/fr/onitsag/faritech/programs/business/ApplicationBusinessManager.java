@@ -3,13 +3,13 @@ package fr.onitsag.faritech.programs.business;
 import fr.onitsag.faritech.api.app.Application;
 import fr.onitsag.faritech.api.app.Icons;
 import fr.onitsag.faritech.api.app.component.Button;
+import fr.onitsag.faritech.programs.business.model.Company;
 import fr.onitsag.faritech.programs.business.service.BusinessRepository;
 import fr.onitsag.faritech.programs.business.task.TaskBusinessAction;
 import fr.onitsag.faritech.api.task.TaskManager;
 import net.minecraft.nbt.NBTTagCompound;
 import fr.onitsag.faritech.programs.business.ui.CompanyLayout;
 import fr.onitsag.faritech.programs.business.ui.MainCompanyListLayout;
-import net.minecraft.nbt.NBTTagCompound;
 
 import javax.annotation.Nullable;
 
@@ -57,9 +57,29 @@ public class ApplicationBusinessManager extends Application
     {
         if(mainLayout != null) mainLayout.refresh();
 
+        // Si on est dans une page d'entreprise, vérifier si le joueur fait toujours partie de cette entreprise
         if(getCurrentLayout() instanceof CompanyLayout)
         {
-            ((CompanyLayout) getCurrentLayout()).refresh();
+            CompanyLayout companyLayout = (CompanyLayout) getCurrentLayout();
+            String currentCompanyId = companyLayout.getCompanyId();
+            String currentPlayerUuid = repo.getCurrentPlayerUuid();
+            
+            // Vérifier si le joueur fait encore partie de cette entreprise
+            Company company = repo.getCompany(currentCompanyId).orElse(null);
+            boolean stillMember = company != null && 
+                (company.getOwnerUuid().equals(currentPlayerUuid) || 
+                 company.getEmployees().stream().anyMatch(e -> e.getPlayerUuid().equals(currentPlayerUuid)));
+            
+            if(!stillMember)
+            {
+                // Le joueur n'est plus dans cette entreprise, le rediriger vers la page principale
+                returnToMainMenu();
+            }
+            else
+            {
+                // Le joueur est encore dans l'entreprise, rafraîchir la page
+                companyLayout.refresh();
+            }
         }
 
         markForLayoutUpdate();

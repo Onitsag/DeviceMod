@@ -3,7 +3,6 @@ package fr.onitsag.faritech.event;
 import fr.onitsag.faritech.programs.business.data.BusinessData;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
-import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.event.world.WorldEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
@@ -19,9 +18,14 @@ public class BusinessEvents
     {
         if(event.getWorld().provider.getDimension() == 0)
         {
+            // Nettoyer les données existantes avant de charger le nouveau monde
+            BusinessData.INSTANCE.clear();
+            
             try
             {
-                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), FILE_NAME);
+                // Utiliser le dossier spécifique au monde pour séparer solo/multi
+                File data = new File(event.getWorld().getSaveHandler().getWorldDirectory(), FILE_NAME);
+                
                 if(!data.exists())
                 {
                     return;
@@ -35,6 +39,7 @@ public class BusinessEvents
             }
             catch (IOException e)
             {
+                System.err.println("[ERROR] BusinessEvents.load() - Erreur lors de la lecture: " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -45,22 +50,33 @@ public class BusinessEvents
     {
         if(event.getWorld().provider.getDimension() == 0)
         {
-            try
-            {
-                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), FILE_NAME);
-                if(!data.exists())
+            // Sauvegarde asynchrone pour éviter de bloquer le thread principal
+            Thread saveThread = new Thread(() -> {
+                try
                 {
-                    data.createNewFile();
-                }
+                    // Utiliser le dossier spécifique au monde pour séparer solo/multi
+                    File data = new File(event.getWorld().getSaveHandler().getWorldDirectory(), FILE_NAME);
+                    
+                    if(!data.exists())
+                    {
+                        data.createNewFile();
+                    }
 
-                NBTTagCompound nbt = new NBTTagCompound();
-                BusinessData.INSTANCE.save(nbt);
-                CompressedStreamTools.write(nbt, data);
-            }
-            catch (IOException e)
-            {
-                e.printStackTrace();
-            }
+                    NBTTagCompound nbt = new NBTTagCompound();
+                    BusinessData.INSTANCE.save(nbt);
+                    
+                    CompressedStreamTools.write(nbt, data);
+                }
+                catch (IOException e)
+                {
+                    System.err.println("[ERROR] BusinessEvents.save() - Erreur lors de l'écriture: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            });
+            
+            saveThread.setName("BusinessData-Save");
+            saveThread.setDaemon(true);
+            saveThread.start();
         }
     }
 }

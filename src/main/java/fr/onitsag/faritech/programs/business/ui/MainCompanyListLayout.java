@@ -16,7 +16,6 @@ public class MainCompanyListLayout extends Layout
 
     private TextField newCompanyName;
     private Button createBtn;
-    private Button exitBtn;
 
     public MainCompanyListLayout(ApplicationBusinessManager app, BusinessRepository repo)
     {
@@ -39,10 +38,6 @@ public class MainCompanyListLayout extends Layout
         String playerName = repo.getCurrentPlayerName();
         addComponent(new Label("Connecté: " + playerName, 10, 8));
         
-        // Bouton quitter dans le coin
-        exitBtn = new Button(310, 6, 46, 14, "Quitter", Icons.CROSS);
-        exitBtn.setClickListener((mx,my,mb) -> { if(mb == 0) app.getWindow().close(); });
-        addComponent(exitBtn);
 
         // Liste des entreprises SANS ScrollableLayout - affichage direct
         addComponent(new Label("Vos entreprises:", 10, 24));

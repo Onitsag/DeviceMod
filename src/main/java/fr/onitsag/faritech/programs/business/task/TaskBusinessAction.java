@@ -4,18 +4,15 @@ import fr.onitsag.faritech.api.task.Task;
 import fr.onitsag.faritech.programs.business.ApplicationBusinessManager;
 import fr.onitsag.faritech.programs.business.data.BusinessData;
 import fr.onitsag.faritech.programs.business.model.Company;
+import fr.onitsag.faritech.programs.business.model.EmployeeRecord;
 import fr.onitsag.faritech.programs.business.model.Grade;
 import fr.onitsag.faritech.programs.business.model.Permissions;
-import fr.onitsag.faritech.programs.business.network.MessageSyncBusiness;
 import fr.onitsag.faritech.programs.business.service.BusinessRepository;
-import fr.onitsag.faritech.network.PacketHandler;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.world.WorldServer;
 import net.minecraft.world.World;
 import net.minecraft.client.Minecraft;
-
 import java.util.UUID;
 
 /**
@@ -64,11 +61,41 @@ public class TaskBusinessAction extends Task
             case "add_grade":
             {
                 Company c = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
-                if(c != null && c.getOwnerUuid().equals(player.getUniqueID().toString()))
-                {
-                    Permissions perm = new Permissions(d.getBoolean("recruit"), d.getBoolean("manage"), d.getBoolean("change"), d.getBoolean("fire"), d.getDouble("limit"));
-                    c.getGrades().add(new Grade(UUID.randomUUID().toString(), d.getString("name"), d.getInteger("level"), perm));
-                    ok = true;
+                if(c != null) {
+                    // Vérifier les permissions du joueur
+                    boolean isOwner = c.getOwnerUuid().equals(player.getUniqueID().toString());
+                    Grade playerGrade = null;
+                    
+                    if(!isOwner) {
+                        EmployeeRecord playerRecord = c.getEmployees().stream()
+                            .filter(e -> e.getPlayerUuid().equals(player.getUniqueID().toString()))
+                            .findFirst().orElse(null);
+                        
+                        if(playerRecord != null) {
+                            playerGrade = c.getGrades().stream()
+                                .filter(g -> g.getId().equals(playerRecord.getGradeId()))
+                                .findFirst().orElse(null);
+                        }
+                    }
+                    
+                    // Récupérer le niveau demandé
+                    int newLevel = d.getInteger("level");
+                    
+                    // Vérifications de sécurité
+                    boolean canCreate = false;
+                    if(isOwner) {
+                        // Le propriétaire peut créer des grades jusqu'au niveau 100
+                        canCreate = newLevel <= 100;
+                    } else if(playerGrade != null && playerGrade.getPermissions().canManageGrades) {
+                        // L'employé peut créer seulement des grades strictement inférieurs au sien
+                        canCreate = newLevel < playerGrade.getLevel();
+                    }
+                    
+                    if(canCreate) {
+                        Permissions perm = new Permissions(d.getBoolean("recruit"), d.getBoolean("manage"), d.getBoolean("change"), d.getBoolean("fire"), d.getDouble("limit"));
+                        c.getGrades().add(new Grade(UUID.randomUUID().toString(), d.getString("name"), newLevel, perm));
+                        ok = true;
+                    }
                 }
                 break;
             }
@@ -81,15 +108,23 @@ public class TaskBusinessAction extends Task
                     String gradeId = d.getString("gradeId");
 
                     EntityPlayerMP target = null;
-                    try
-                    {
-                        target = player.getServer().getPlayerList().getPlayerByUUID(UUID.fromString(playerUuid));
-                    }
-                    catch(IllegalArgumentException ignored) {}
-
-                    if(target == null && !playerName.isEmpty())
-                    {
+                    
+                    // Si l'UUID est vide ou invalide, chercher directement par nom
+                    if(playerUuid == null || playerUuid.isEmpty()) {
                         target = player.getServer().getPlayerList().getPlayerByUsername(playerName);
+                    } else {
+                        try
+                        {
+                            target = player.getServer().getPlayerList().getPlayerByUUID(UUID.fromString(playerUuid));
+                        }
+                        catch(IllegalArgumentException e) {
+                            // UUID invalide, continuer avec la recherche par nom
+                        }
+
+                        if(target == null && !playerName.isEmpty())
+                        {
+                            target = player.getServer().getPlayerList().getPlayerByUsername(playerName);
+                        }
                     }
 
                     if(target != null)
@@ -98,8 +133,13 @@ public class TaskBusinessAction extends Task
                         playerName = target.getName();
                     }
 
+                    // Vérifier que le grade existe
+                    boolean gradeExists = c.getGrades().stream().anyMatch(g -> g.getId().equals(gradeId));
+
                     final String finalUuid = playerUuid;
-                    if(c.getEmployees().stream().noneMatch(emp -> emp.getPlayerUuid().equals(finalUuid)))
+                    boolean alreadyEmployee = c.getEmployees().stream().anyMatch(emp -> emp.getPlayerUuid().equals(finalUuid));
+
+                    if(target != null && gradeExists && !alreadyEmployee)
                     {
                         c.getEmployees().add(new fr.onitsag.faritech.programs.business.model.EmployeeRecord(playerUuid, playerName, gradeId));
                         ok = true;
@@ -112,8 +152,32 @@ public class TaskBusinessAction extends Task
                 Company c = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
                 if(c != null) {
                     String playerUuid = d.getString("playerUuid");
-                    c.getEmployees().removeIf(e -> e.getPlayerUuid().equals(playerUuid));
-                    ok = true;
+                    String playerName = d.getString("playerName");
+                    
+                    // Si l'UUID est vide, chercher le joueur par nom pour obtenir son vrai UUID
+                    if(playerUuid == null || playerUuid.isEmpty()) {
+                        if(playerName != null && !playerName.isEmpty()) {
+                            EntityPlayerMP target = player.getServer().getPlayerList().getPlayerByUsername(playerName);
+                            if(target != null) {
+                                playerUuid = target.getUniqueID().toString();
+                            } else {
+                                // Chercher dans la liste des employés par nom
+                                for(EmployeeRecord emp : c.getEmployees()) {
+                                    if(emp.getPlayerName().equals(playerName)) {
+                                        playerUuid = emp.getPlayerUuid();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if(playerUuid != null && !playerUuid.isEmpty()) {
+                        final String finalPlayerUuid = playerUuid;
+                        boolean removed = c.getEmployees().removeIf(e -> e.getPlayerUuid().equals(finalPlayerUuid));
+                        System.out.println("[DEBUG] fire_employee: " + playerName + " -> " + (removed ? "licencié" : "non trouvé"));
+                        ok = removed;
+                    }
                 }
                 break;
             }
@@ -122,12 +186,37 @@ public class TaskBusinessAction extends Task
                 Company c = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
                 if(c != null) {
                     String playerUuid = d.getString("playerUuid");
+                    String playerName = d.getString("playerName");
                     String newGradeId = d.getString("gradeId");
-                    c.getEmployees().stream()
-                        .filter(e -> e.getPlayerUuid().equals(playerUuid))
-                        .findFirst()
-                        .ifPresent(e -> e.setGradeId(newGradeId));
-                    ok = true;
+                    
+                    // Si l'UUID est vide, chercher le joueur par nom pour obtenir son vrai UUID
+                    if(playerUuid == null || playerUuid.isEmpty()) {
+                        if(playerName != null && !playerName.isEmpty()) {
+                            EntityPlayerMP target = player.getServer().getPlayerList().getPlayerByUsername(playerName);
+                            if(target != null) {
+                                playerUuid = target.getUniqueID().toString();
+                            } else {
+                                // Chercher dans la liste des employés par nom
+                                for(EmployeeRecord emp : c.getEmployees()) {
+                                    if(emp.getPlayerName().equals(playerName)) {
+                                        playerUuid = emp.getPlayerUuid();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if(playerUuid != null && !playerUuid.isEmpty()) {
+                        final String finalPlayerUuid = playerUuid;
+                        boolean changed = c.getEmployees().stream()
+                            .filter(e -> e.getPlayerUuid().equals(finalPlayerUuid))
+                            .findFirst()
+                            .map(e -> { e.setGradeId(newGradeId); return true; })
+                            .orElse(false);
+                        System.out.println("[DEBUG] change_grade: " + playerName + " -> " + (changed ? "changé" : "non trouvé"));
+                        ok = changed;
+                    }
                 }
                 break;
             }
@@ -150,6 +239,67 @@ public class TaskBusinessAction extends Task
                     String gradeId = d.getString("gradeId");
                     c.getGrades().removeIf(g -> g.getId().equals(gradeId));
                     ok = true;
+                }
+                break;
+            }
+            case "modify_grade":
+            {
+                Company c = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
+                if(c != null) {
+                    String gradeId = d.getString("gradeId");
+                    Grade grade = c.getGrades().stream()
+                        .filter(g -> g.getId().equals(gradeId))
+                        .findFirst().orElse(null);
+                    
+                    if(grade != null) {
+                        // Vérifier les permissions du joueur
+                        boolean isOwner = c.getOwnerUuid().equals(player.getUniqueID().toString());
+                        Grade playerGrade = null;
+                        
+                        if(!isOwner) {
+                            EmployeeRecord playerRecord = c.getEmployees().stream()
+                                .filter(e -> e.getPlayerUuid().equals(player.getUniqueID().toString()))
+                                .findFirst().orElse(null);
+                            
+                            if(playerRecord != null) {
+                                playerGrade = c.getGrades().stream()
+                                    .filter(g -> g.getId().equals(playerRecord.getGradeId()))
+                                    .findFirst().orElse(null);
+                            }
+                        }
+                        
+                        // Récupérer le nouveau niveau demandé
+                        int newLevel = d.getInteger("level");
+                        
+                        // Vérifications de sécurité
+                        boolean canModify = false;
+                        if(isOwner) {
+                            // Le propriétaire peut tout modifier sauf créer des grades de niveau supérieur à 100
+                            canModify = newLevel <= 100;
+                        } else if(playerGrade != null && playerGrade.getPermissions().canManageGrades) {
+                            // L'employé peut modifier seulement les grades STRICTEMENT inférieurs au sien
+                            // ET ne peut pas créer un grade de niveau >= au sien
+                            canModify = grade.getLevel() < playerGrade.getLevel() && newLevel < playerGrade.getLevel();
+                        }
+                        
+                        if(canModify) {
+                            // Modifier le grade
+                            grade.setName(d.getString("name"));
+                            grade.setLevel(newLevel);
+                            
+                            // Modifier les permissions
+                            Permissions newPerms = new Permissions(
+                                d.getBoolean("canRecruit"),
+                                d.getBoolean("canManageGrades"), 
+                                d.getBoolean("canChangeEmployeeGrade"),
+                                d.getBoolean("canFire"),
+                                d.getDouble("transferLimit")
+                            );
+                            grade.setPermissions(newPerms);
+                            
+                            ok = true;
+                        }
+                    }
                 }
                 break;
             }

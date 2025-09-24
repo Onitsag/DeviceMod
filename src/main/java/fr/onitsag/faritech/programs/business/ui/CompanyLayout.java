@@ -5,17 +5,20 @@ import fr.onitsag.faritech.api.app.Icons;
 import fr.onitsag.faritech.api.app.Layout;
 import fr.onitsag.faritech.api.app.ScrollableLayout;
 import fr.onitsag.faritech.api.app.component.*;
+import fr.onitsag.faritech.api.app.renderer.ListItemRenderer;
 import fr.onitsag.faritech.programs.business.ApplicationBusinessManager;
 import fr.onitsag.faritech.programs.business.model.*;
 import fr.onitsag.faritech.programs.business.service.BusinessRepository;
 import fr.onitsag.faritech.programs.business.task.TaskBusinessAction;
+import fr.onitsag.faritech.programs.business.data.BusinessData;
 import fr.onitsag.faritech.api.task.TaskManager;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.text.TextFormatting;
 
+import javax.annotation.Nullable;
 import java.util.Comparator;
-import java.util.UUID;
 
 public class CompanyLayout extends Layout
 {
@@ -33,6 +36,11 @@ public class CompanyLayout extends Layout
         this.app = app;
         this.repo = repo;
         this.companyId = companyId;
+    }
+    
+    public String getCompanyId()
+    {
+        return companyId;
     }
 
     @Override
@@ -70,20 +78,24 @@ public class CompanyLayout extends Layout
         addComponent(bGr);
 
         // Bouton retour compact
-        Button back = new Button(310, 6, 46, 14, "Retour", Icons.ARROW_LEFT);
+        Button back = new Button(304, 6, 52, 14, "Retour", Icons.ARROW_LEFT);
         back.setClickListener((mx,my,mb)->{ if(mb==0) app.returnToMainMenu(); });
         addComponent(back);
-
-        // Conteneur scrollable pour le contenu
-        ScrollableLayout content = new ScrollableLayout(0, 24, 362, 1, 140);
-        addComponent(content);
 
         // Contenu selon l'onglet
         switch (current)
         {
-            case TRANSACTIONS: buildTransactions(content); break;
-            case EMPLOYEES:    buildEmployees(content); break;
-            case GRADES:       buildGrades(content); break;
+            case TRANSACTIONS: buildTransactions(); break;
+            case EMPLOYEES: 
+            case GRADES: 
+            {
+                // Conteneur scrollable pour le contenu (sauf transactions)
+                ScrollableLayout content = new ScrollableLayout(0, 24, 362, 1, 140);
+                addComponent(content);
+                if(current == Tab.EMPLOYEES) buildEmployees(content);
+                else buildGrades(content);
+                break;
+            }
         }
 
         // IMPORTANT: après avoir reconstruit les composants, forcer la mise à jour
@@ -92,43 +104,42 @@ public class CompanyLayout extends Layout
         app.markForLayoutUpdate();
     }
 
-    private void buildTransactions(Layout content)
+    private void buildTransactions()
     {
         Company c = repo.getCompany(companyId).orElse(null);
         if(c == null) return;
 
-        // Solde
-        content.addComponent(new Label("Solde: " + String.format("%.2f", c.getBalance()) + "€", 10, 0));
+        // Solde fixe en haut
+        addComponent(new Label("Solde: " + String.format("%.2f", c.getBalance()) + "€", 10, 24));
 
-        // Liste des dernières transactions
-        content.addComponent(new Label("Dernières transactions:", 10, 16));
+        // Liste des transactions scrollable au milieu
+        addComponent(new Label("Dernières transactions:", 10, 40));
+        ScrollableLayout transactionsList = new ScrollableLayout(0, 52, 362, 1, 80);
+        addComponent(transactionsList);
         
-        int y = 28;
-        int count = 0;
+        int y = 0;
         for(BizTransaction t : c.getTransactions()) {
-            if(count >= 8) break; // Maximum 8 lignes pour rester dans l'espace
-            
             String text = t.toString();
             if(Minecraft.getMinecraft().fontRenderer.getStringWidth(text) > 340) {
                 text = Minecraft.getMinecraft().fontRenderer.trimStringToWidth(text, 340);
             }
-            content.addComponent(new Label(text, 12, y));
+            transactionsList.addComponent(new Label(text, 12, y));
             y += 12;
-            count++;
         }
+        transactionsList.height = Math.max(y, 80);
 
-        // Section virement
-        y = Math.max(y + 8, 120);
-        content.addComponent(new Label("Virement:", 10, y));
-        int formY = y + 12;
+        // Section virement fixe en bas
+        int formY = 140;
+        addComponent(new Label("Virement:", 10, formY));
+        formY += 12;
         
         TextField target = new TextField(10, formY, 120);
         target.setPlaceholder("Entreprise");
-        content.addComponent(target);
+        addComponent(target);
         
         TextField amount = new TextField(134, formY, 60);
         amount.setText("0");
-        content.addComponent(amount);
+        addComponent(amount);
         
         Button send = new Button(198, formY, 50, 16, "Virer", Icons.CASH);
         send.setClickListener((mx,my,mb)->{
@@ -136,109 +147,145 @@ public class CompanyLayout extends Layout
                 handleTransfer(c, target.getText().trim(), amount.getText().trim());
             }
         });
-        content.addComponent(send);
-
-        // Ajuster la hauteur du contenu exactement au dernier élément
-        int bottom = formY + 24;
-        content.height = bottom;
+        addComponent(send);
     }
 
     private void buildEmployees(Layout content)
     {
         Company c = repo.getCompany(companyId).orElse(null);
-        if(c == null) return;
-        
-        // Colonne gauche - Liste employés
-        content.addComponent(new Label("Employés:", 10, 0));
-        
-        int y = 14;
-        int count = 0;
-        for(EmployeeRecord emp : c.getEmployees()) {
-            if(count >= 10) break; // Max 10 employés affichés
-            
-            Grade grade = c.getGrades().stream()
-                .filter(g -> g.getId().equals(emp.getGradeId()))
-                .findFirst().orElse(null);
-            String gradeText = grade != null ? " (" + grade.getName() + ")" : "";
-            content.addComponent(new Label("• " + emp.getPlayerName() + gradeText, 12, y));
-            y += 12;
-            count++;
+        if(c == null) {
+            content.addComponent(new Label("Entreprise introuvable", 10, 10));
+            content.height = 30;
+            return;
         }
-
-        // Colonne droite - Contrôles
-        content.addComponent(new Label("Ajouter:", 180, 0));
         
-        TextField playerField = new TextField(180, 14, 100);
-        playerField.setPlaceholder("Joueur");
+        Grade userGrade = currentUserGrade(c);
+        boolean canChangeGrade = userGrade != null && userGrade.getPermissions().canChangeEmployeeGrade;
+        boolean canFire = userGrade != null && userGrade.getPermissions().canFire;
+        boolean canRecruit = userGrade != null && userGrade.getPermissions().canRecruit;
+
+        // GAUCHE : Liste des employés
+        content.addComponent(new Label("Employés :", 6, 6));
+        
+        ItemList<EmployeeRecord> employeeList = new ItemList<>(6, 22, 180, 120);
+        employeeList.setItems(c.getEmployees());
+        employeeList.setListItemRenderer(new ListItemRenderer<EmployeeRecord>(18) {
+            @Override
+            public void render(EmployeeRecord emp, Gui gui, Minecraft mc, int x, int y, int width, int height, boolean selected) {
+                // Fond de sélection
+                if(selected) {
+                    Gui.drawRect(x, y, x + width, y + height, 0xFF3F51B5);
+                }
+                
+                // Trouver le grade
+                Grade empGrade = c.getGrades().stream()
+                    .filter(g -> g.getId().equals(emp.getGradeId()))
+                    .findFirst().orElse(null);
+                String gradeText = empGrade != null ? empGrade.getName() : "Sans grade";
+                
+                // Afficher nom + grade
+                String text = emp.getPlayerName() + " (" + gradeText + ")";
+                mc.fontRenderer.drawString(text, x + 2, y + 4, selected ? 0xFFFFFF : 0x000000);
+            }
+        });
+        
+        content.addComponent(employeeList);
+        
+        // DROITE : Informations et actions
+        int rightX = 200;
+        content.addComponent(new Label("Actions :", rightX, 6));
+        
+        // Info sur l'employé sélectionné
+        Label selectedEmployeeLabel = new Label("Sélectionnez un employé", rightX, 22);
+        content.addComponent(selectedEmployeeLabel);
+        
+        Label selectedGradeLabel = new Label("", rightX, 34);
+        content.addComponent(selectedGradeLabel);
+        
+        // Boutons d'action
+        Button changeGradeBtn = new Button(rightX, 56, 80, 18, "Gérer", Icons.EDIT);
+        changeGradeBtn.setEnabled(false);
+        content.addComponent(changeGradeBtn);
+        
+        Button fireBtn = new Button(rightX + 85, 56, 60, 18, "Licencier", Icons.TRASH);
+        fireBtn.setEnabled(false);
+        content.addComponent(fireBtn);
+        
+        // Section recrutement
+        content.addComponent(new Label("Recruter :", rightX, 90));
+        
+        TextField playerField = new TextField(rightX, 106, 120);
+        playerField.setPlaceholder("Nom du joueur");
         content.addComponent(playerField);
         
-        // Filtrer les grades selon la hiérarchie (seulement les grades inférieurs ou égaux si on peut recruter)
-        Grade userGrade = currentUserGrade(c);
-        Grade[] availableGrades;
-        if(userGrade != null) {
-            availableGrades = c.getGrades().stream()
-                .filter(g -> g.getLevel() <= userGrade.getLevel()) // <= au lieu de < pour inclure notre niveau
-                .toArray(Grade[]::new);
-        } else {
-            availableGrades = c.getGrades().toArray(new Grade[0]); // Si pas de grade, montrer tous
-        }
-        
-        ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(180, 32, 100, availableGrades);
-        
-        // Pré-sélectionner le grade "Employé" par défaut
+        Grade[] availableGrades = c.getGrades().stream()
+            .filter(g -> g.getLevel() <= (userGrade != null ? userGrade.getLevel() : -1))
+            .toArray(Grade[]::new);
+            
+        ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(rightX, 124, 120, availableGrades);
+        // Pré-sélectionner "Employé"
         for(Grade grade : availableGrades) {
             if(grade.getName().equals("Employé")) {
                 gradeCombo.setSelectedItem(grade);
                 break;
             }
         }
-        
         content.addComponent(gradeCombo);
         
-        Button addBtn = new Button(286, 14, 50, 16, "Ajouter", Icons.PLUS);
-        addBtn.setClickListener((mx,my,mb)->{
-            if(mb==0) {
+        Button recruitBtn = new Button(rightX, 142, 80, 18, "Recruter", Icons.PLUS);
+        recruitBtn.setEnabled(canRecruit);
+        content.addComponent(recruitBtn);
+        
+        // LOGIQUE DE SÉLECTION
+        employeeList.setItemClickListener((employee, index, mouseButton) -> {
+            if(mouseButton == 0 && employee != null) {
+                // Mettre à jour les infos affichées
+                Grade empGrade = c.getGrades().stream()
+                    .filter(g -> g.getId().equals(employee.getGradeId()))
+                    .findFirst().orElse(null);
+                    
+                selectedEmployeeLabel.setText("Employé: " + employee.getPlayerName());
+                selectedGradeLabel.setText("Grade: " + (empGrade != null ? empGrade.getName() : "Sans grade"));
+                
+                // Activer/désactiver les boutons selon les permissions
+                boolean canManageThisEmployee = userGrade != null && 
+                    ((empGrade == null && userGrade.getLevel() > 0) || 
+                     (empGrade != null && empGrade.getLevel() < userGrade.getLevel()));
+                     
+                changeGradeBtn.setEnabled(canChangeGrade && canManageThisEmployee);
+                fireBtn.setEnabled(canFire && canManageThisEmployee);
+            }
+        });
+        
+        // ACTIONS DES BOUTONS
+        changeGradeBtn.setClickListener((mx, my, mb) -> {
+            if(mb == 0) {
+                EmployeeRecord selectedEmployee = employeeList.getSelectedItem();
+                if(selectedEmployee != null) {
+                    Grade empGrade = c.getGrades().stream()
+                        .filter(g -> g.getId().equals(selectedEmployee.getGradeId()))
+                        .findFirst().orElse(null);
+                    openEmployeeManagementDialog(selectedEmployee, empGrade, c);
+                }
+            }
+        });
+        
+        fireBtn.setClickListener((mx, my, mb) -> {
+            if(mb == 0) {
+                EmployeeRecord selectedEmployee = employeeList.getSelectedItem();
+                if(selectedEmployee != null) {
+                    confirmFireEmployee(selectedEmployee);
+                }
+            }
+        });
+        
+        recruitBtn.setClickListener((mx, my, mb) -> {
+            if(mb == 0) {
                 handleAddEmployee(c, playerField, gradeCombo);
             }
         });
-        content.addComponent(addBtn);
-
-        Button fireBtn = new Button(286, 32, 50, 16, "Virer", Icons.TRASH);
-        fireBtn.setClickListener((mx,my,mb)->{
-            if(mb==0) {
-                handleFireEmployee(c);
-            }
-        });
-        content.addComponent(fireBtn);
-
-        // Changement de grade
-        content.addComponent(new Label("Changer grade:", 180, 56));
         
-        TextField targetPlayer = new TextField(180, 70, 100);
-        targetPlayer.setPlaceholder("Joueur");
-        content.addComponent(targetPlayer);
-        
-        ComboBox.List<Grade> gradeCombo2 = new ComboBox.List<>(180, 88, 100, availableGrades);
-        
-        // Pré-sélectionner le grade "Employé" par défaut
-        for(Grade grade : availableGrades) {
-            if(grade.getName().equals("Employé")) {
-                gradeCombo2.setSelectedItem(grade);
-                break;
-            }
-        }
-        
-        content.addComponent(gradeCombo2);
-        
-        Button changeBtn = new Button(286, 70, 50, 16, "OK", Icons.EDIT);
-        changeBtn.setClickListener((mx,my,mb)->{
-            if(mb==0) {
-                handleChangeGrade(c, targetPlayer.getText().trim(), gradeCombo2);
-            }
-        });
-        content.addComponent(changeBtn);
-
-        content.height = Math.max(110, y);
+        content.height = 170;
     }
 
     private void buildGrades(Layout content)
@@ -263,28 +310,17 @@ public class CompanyLayout extends Layout
             Grade grade = grades[i];
             boolean canModifyThisGrade = canManageGrades && grade.getLevel() < userLevel;
             
-            // Flèches de réorganisation (seulement si on peut gérer et que ce n'est pas notre grade ou supérieur)
+            // Bouton modifier en premier
             if(canModifyThisGrade) {
-                // Flèche vers le haut (augmenter niveau)
-                if(i > 0) {
-                    Button upBtn = new Button(12, y, 16, 16, "", Icons.ARROW_UP);
-                    upBtn.setClickListener((mx,my,mb)->{
-                        if(mb==0) handleMoveGrade(c, grade, true);
-                    });
-                    content.addComponent(upBtn);
-                }
+                Button modifyBtn = new Button(12, y, 60, 16, "Modifier", Icons.EDIT);
+                modifyBtn.setClickListener((mx,my,mb)->{
+                    if(mb==0) openGradeEditDialog(c, grade);
+                });
+                content.addComponent(modifyBtn);
                 
-                // Flèche vers le bas (diminuer niveau)
-                if(i < grades.length - 1) {
-                    Button downBtn = new Button(30, y, 16, 16, "", Icons.ARROW_DOWN);
-                    downBtn.setClickListener((mx,my,mb)->{
-                        if(mb==0) handleMoveGrade(c, grade, false);
-                    });
-                    content.addComponent(downBtn);
-                }
                 
                 // Icône poubelle pour supprimer
-                Button deleteBtn = new Button(48, y, 16, 16, "", Icons.TRASH);
+                Button deleteBtn = new Button(78, y, 16, 16, "", Icons.TRASH);
                 deleteBtn.setClickListener((mx,my,mb)->{
                     if(mb==0) handleDeleteGradeWithConfirmation(c, grade);
                 });
@@ -292,7 +328,7 @@ public class CompanyLayout extends Layout
             }
             
             // Nom et niveau du grade
-            int labelX = canModifyThisGrade ? 70 : 12;
+            int labelX = canModifyThisGrade ? 100 : 12;
             content.addComponent(new Label(grade.getName() + " (Niveau " + grade.getLevel() + ")", labelX, y + 2));
             
             // Afficher les permissions sous le nom
@@ -320,42 +356,44 @@ public class CompanyLayout extends Layout
             
             // Nom du grade
             content.addComponent(new Label("Nom du grade :", 12, y));
-            TextField nameField = new TextField(12, y + 10, 120);
+            y += 12;
+            TextField nameField = new TextField(12, y, 200);
             nameField.setPlaceholder("Ex: Manager, Assistant...");
             content.addComponent(nameField);
-            
+            y += 22;
+        
             // Niveau hiérarchique
-            content.addComponent(new Label("Niveau hiérarchique :", 140, y));
-            content.addComponent(new Label("(Doit être < " + userLevel + ")", 140, y + 8));
-            TextField levelField = new TextField(140, y + 18, 60);
+            content.addComponent(new Label("Niveau hiérarchique :", 12, y));
+            y += 12;
+            TextField levelField = new TextField(12, y, 100);
             levelField.setPlaceholder("Ex: " + Math.max(1, userLevel - 10));
             content.addComponent(levelField);
-            
-            y += 35;
+            content.addComponent(new Label("(Doit être < " + userLevel + ")", 120, y + 2));
+            y += 22;
             
             // Limite de transfert
             content.addComponent(new Label("Limite de virement (€) :", 12, y));
-            TextField limitField = new TextField(12, y + 10, 100);
+            y += 12;
+            TextField limitField = new TextField(12, y, 120);
             limitField.setPlaceholder("Ex: 10000");
             content.addComponent(limitField);
-            
-            y += 25;
+            y += 22;
             
             // Permissions avec descriptions
             content.addComponent(new Label("Permissions :", 12, y));
             y += 12;
             
-            CheckBox pRecruit = new CheckBox("Peut recruter de nouveaux employés", 12, y);
-            content.addComponent(pRecruit);
-            y += 14;
+            CheckBox pRecruit = new CheckBox("Peut recruter des employés", 12, y);
+            content.addComponent(pRecruit); 
+            y += 16;
             
-            CheckBox pManage = new CheckBox("Peut créer/supprimer des grades", 12, y);
-            content.addComponent(pManage);
-            y += 14;
+            CheckBox pManage = new CheckBox("Peut gérer les grades", 12, y);
+            content.addComponent(pManage); 
+            y += 16;
             
             CheckBox pChange = new CheckBox("Peut promouvoir/rétrograder", 12, y);
-            content.addComponent(pChange);
-            y += 14;
+            content.addComponent(pChange); 
+            y += 16;
             
             CheckBox pFire = new CheckBox("Peut licencier des employés", 12, y);
             content.addComponent(pFire);
@@ -363,13 +401,13 @@ public class CompanyLayout extends Layout
 
             // Bouton de création
             Button createBtn = new Button(12, y, 100, 18, "Créer le grade", Icons.PLUS);
-            createBtn.setClickListener((mx,my,mb)->{
-                if(mb==0) {
+        createBtn.setClickListener((mx,my,mb)->{
+            if(mb==0) {
                     handleCreateGradeWithValidation(c, nameField, levelField, limitField, pRecruit, pManage, pChange, pFire, userLevel);
-                }
-            });
-            content.addComponent(createBtn);
-            
+            }
+        });
+        content.addComponent(createBtn);
+
             y += 25;
         } else {
             content.addComponent(new Label("Vous n'avez pas les permissions pour gérer les grades.", 10, y));
@@ -424,75 +462,178 @@ public class CompanyLayout extends Layout
             return;
         }
         
-        String uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes()).toString();
-        
+        // Ne pas générer d'UUID côté client, laisser le serveur résoudre
         // Envoyer la tâche au serveur au lieu de modifier directement
         NBTTagCompound d = new NBTTagCompound();
         d.setString("companyId", companyId);
-        d.setString("playerUuid", uuid);
+        d.setString("playerUuid", ""); // UUID vide, le serveur résoudra
         d.setString("playerName", name);
         d.setString("gradeId", selectedGrade.getId());
         
         TaskManager.sendTask(new TaskBusinessAction().op("add_employee", d).setCallback((nbt, success) -> {
             if (success) {
                 playerField.setText("");
-                Minecraft.getMinecraft().addScheduledTask(this::build);
+        Minecraft.getMinecraft().addScheduledTask(this::build);
             } else {
                 app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors de l'ajout"));
             }
         }));
     }
 
-    private void handleFireEmployee(Company c) {
-        Grade playerGrade = currentUserGrade(c);
-        if (playerGrade == null || !playerGrade.getPermissions().canFire) {
-            app.openDialog(new Dialog.Message(TextFormatting.RED + "Pas de permission"));
+    private void openEmployeeManagementDialog(EmployeeRecord employee, Grade currentGrade, Company company) {
+        Grade userGrade = currentUserGrade(company);
+        if(userGrade == null) return;
+        
+        // Vérifier les permissions
+        boolean canChangeGrade = userGrade.getPermissions().canChangeEmployeeGrade;
+        boolean canFire = userGrade.getPermissions().canFire;
+        
+        if(!canChangeGrade && !canFire) {
+            app.openDialog(new Dialog.Message("Aucune action disponible pour cet employé"));
             return;
         }
-
-        // Pour simplicité, on demande le nom à licencier
-        Dialog.Input dialog = new Dialog.Input("Nom du joueur à licencier:");
-        dialog.setResponseHandler((success, response) -> {
-            if (success && !response.trim().isEmpty()) {
-                String uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + response.trim()).getBytes()).toString();
+        
+        // Créer un dialogue compact avec menu déroulant
+        
+        if(canChangeGrade) {
+            // Menu déroulant pour les grades
+            Grade[] availableGrades = company.getGrades().stream()
+                .filter(g -> g.getLevel() < userGrade.getLevel())
+                .sorted(java.util.Comparator.comparingInt(Grade::getLevel).reversed())
+                .toArray(Grade[]::new);
                 
-                // Envoyer la tâche au serveur au lieu de modifier directement
-                NBTTagCompound d = new NBTTagCompound();
-                d.setString("companyId", companyId);
-                d.setString("playerUuid", uuid);
-                
-                TaskManager.sendTask(new TaskBusinessAction().op("fire_employee", d).setCallback((nbt, successTask) -> {
-                    if (successTask) {
-                        Minecraft.getMinecraft().addScheduledTask(this::build);
-                    } else {
-                        app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors du licenciement"));
-                    }
-                }));
+            if(availableGrades.length > 0) {
+                openGradeSelectionDialog(employee, currentGrade, availableGrades, canFire);
+            } else if(canFire) {
+                // Seulement licenciement possible
+                confirmFireEmployee(employee);
+            } else {
+                app.openDialog(new Dialog.Message("Aucun grade modifiable disponible"));
             }
-            return true;
+        } else if(canFire) {
+            // Seulement licenciement
+            confirmFireEmployee(employee);
+        }
+    }
+    
+    private void openGradeSelectionDialog(EmployeeRecord employee, Grade currentGrade, Grade[] availableGrades, boolean canFire) {
+        // Créer un dialogue personnalisé pour la sélection de grade
+        Dialog gradeDialog = new Dialog() {
+            @Override
+            public void init(@Nullable NBTTagCompound intent) {
+                super.init(intent);
+                
+                // Configuration du dialogue
+                setTitle("Gestion d'employé");
+                
+                // Créer le layout personnalisé
+                Layout content = new Layout(280, 120);
+                
+                String currentGradeText = currentGrade != null ? currentGrade.getName() : "Sans grade";
+                
+                // Labels
+                content.addComponent(new Label("Gestion de " + employee.getPlayerName(), 10, 10));
+                content.addComponent(new Label("Grade actuel: " + currentGradeText, 10, 28));
+                content.addComponent(new Label("Grade :", 10, 50));
+                
+                // ComboBox
+                ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(70, 48, 140, availableGrades);
+                if(currentGrade != null) {
+                    gradeCombo.setSelectedItem(currentGrade);
+                }
+                content.addComponent(gradeCombo);
+                
+                // Boutons
+                Button confirmBtn = new Button(10, 80, 80, 18, "Confirmer", Icons.CHECK);
+                Button cancelBtn = new Button(95, 80, 70, 18, "Annuler", Icons.CROSS);
+                
+                confirmBtn.setClickListener((mx, my, mb) -> {
+                    if(mb == 0) {
+                        Grade selectedGrade = gradeCombo.getSelectedItem();
+                        if(selectedGrade != null && !selectedGrade.equals(currentGrade)) {
+                            close();
+                            handleChangeEmployeeGrade(employee, selectedGrade);
+                        } else if(selectedGrade != null && selectedGrade.equals(currentGrade)) {
+                            app.openDialog(new Dialog.Message("Veuillez sélectionner un grade différent"));
+                        } else {
+                            app.openDialog(new Dialog.Message("Veuillez sélectionner un grade"));
+                        }
+                    }
+                });
+                
+                cancelBtn.setClickListener((mx, my, mb) -> {
+                    if(mb == 0) {
+                        close();
+                    }
+                });
+                
+                content.addComponent(confirmBtn);
+                content.addComponent(cancelBtn);
+                
+                if(canFire) {
+                    Button fireBtn = new Button(170, 80, 70, 18, "Licencier", Icons.TRASH);
+                    fireBtn.setClickListener((mx, my, mb) -> {
+                        if(mb == 0) {
+                            close();
+                            confirmFireEmployee(employee);
+                        }
+                    });
+                    content.addComponent(fireBtn);
+                    content.width = 250;
+                }
+                
+                setLayout(content);
+            }
+        };
+        
+        app.openDialog(gradeDialog);
+    }
+    
+    private void handleChangeEmployeeGrade(EmployeeRecord employee, Grade newGrade) {
+        // Envoyer la tâche au serveur
+        NBTTagCompound d = new NBTTagCompound();
+        d.setString("companyId", companyId);
+        d.setString("playerUuid", ""); // UUID vide, le serveur résoudra par nom
+        d.setString("playerName", employee.getPlayerName());
+        d.setString("gradeId", newGrade.getId());
+        
+        TaskManager.sendTask(new TaskBusinessAction().op("change_grade", d).setCallback((nbt, success) -> {
+            if (success) {
+                app.openDialog(new Dialog.Message("Grade de " + employee.getPlayerName() + " changé vers " + newGrade.getName()));
+                Minecraft.getMinecraft().addScheduledTask(this::build);
+            } else {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors du changement de grade"));
+            }
+        }));
+    }
+    
+    private void confirmFireEmployee(EmployeeRecord employee) {
+        String message = "⚠️ CONFIRMATION DE LICENCIEMENT ⚠️\n\n";
+        message += "Êtes-vous sûr de vouloir licencier :\n";
+        message += "👤 " + employee.getPlayerName() + " ?\n\n";
+        message += "Cette action est irréversible !";
+        
+        Dialog.Confirmation dialog = new Dialog.Confirmation(message);
+        dialog.setPositiveListener((mouseX, mouseY, mouseButton) -> {
+            // Envoyer la tâche de licenciement au serveur
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("companyId", companyId);
+            d.setString("playerUuid", ""); // UUID vide, le serveur résoudra par nom
+            d.setString("playerName", employee.getPlayerName());
+            
+            TaskManager.sendTask(new TaskBusinessAction().op("fire_employee", d).setCallback((nbt, success) -> {
+                if (success) {
+                    app.openDialog(new Dialog.Message("✅ " + employee.getPlayerName() + " a été licencié avec succès"));
+                    Minecraft.getMinecraft().addScheduledTask(this::build);
+                } else {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "❌ Erreur lors du licenciement"));
+                }
+            }));
         });
         app.openDialog(dialog);
     }
 
-    private void handleChangeGrade(Company c, String playerName, ComboBox<Grade> gradeCombo2) {
-        Grade playerGrade = currentUserGrade(c);
-        if (playerGrade == null || !playerGrade.getPermissions().canChangeEmployeeGrade) {
-            app.openDialog(new Dialog.Message(TextFormatting.RED + "Pas de permission"));
-            return;
-        }
 
-        if(playerName.isEmpty()) return;
-        
-        Grade newGrade = (Grade) gradeCombo2.getValue();
-        if(newGrade.getLevel() > playerGrade.getLevel()) {
-            app.openDialog(new Dialog.Message(TextFormatting.RED + "Grade trop élevé"));
-            return;
-        }
-        
-        String uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + playerName).getBytes()).toString();
-        repo.changeEmployeeGrade(companyId, uuid, newGrade.getId());
-        Minecraft.getMinecraft().addScheduledTask(this::build);
-    }
 
     private void handleCreateGradeWithValidation(Company c, TextField nameField, TextField levelField, TextField limitField, 
                                              CheckBox pRecruit, CheckBox pManage, CheckBox pChange, CheckBox pFire, int userLevel) {
@@ -500,8 +641,8 @@ public class CompanyLayout extends Layout
             String name = nameField.getText().trim();
             if(name.isEmpty()) {
                 app.openDialog(new Dialog.Message("Le nom du grade est requis"));
-                return;
-            }
+            return;
+        }
             
             int level = Integer.parseInt(levelField.getText().trim());
             double limit = Double.parseDouble(limitField.getText().trim());
@@ -519,59 +660,38 @@ public class CompanyLayout extends Layout
                 return;
             }
             
-            Permissions perm = new Permissions(pRecruit.isSelected(), pManage.isSelected(), 
-                                             pChange.isSelected(), pFire.isSelected(), limit);
-            repo.addGrade(companyId, name, level, perm);
+            // Envoyer la tâche au serveur au lieu de modifier directement
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("companyId", companyId);
+            d.setString("name", name);
+            d.setInteger("level", level);
+            d.setDouble("limit", limit);
+            d.setBoolean("recruit", pRecruit.isSelected());
+            d.setBoolean("manage", pManage.isSelected());
+            d.setBoolean("change", pChange.isSelected());
+            d.setBoolean("fire", pFire.isSelected());
             
-            // Vider les champs après création
-            nameField.setText("");
-            levelField.setText("");
-            limitField.setText("");
-            pRecruit.setSelected(false);
-            pManage.setSelected(false);
-            pChange.setSelected(false);
-            pFire.setSelected(false);
-            
+            TaskManager.sendTask(new TaskBusinessAction().op("add_grade", d).setCallback((nbt, success) -> {
+                if (success) {
+                    // Vider les champs après création
+                    nameField.setText("");
+                    levelField.setText("");
+                    limitField.setText("");
+                    pRecruit.setSelected(false);
+                    pManage.setSelected(false);
+                    pChange.setSelected(false);
+                    pFire.setSelected(false);
+                    
             Minecraft.getMinecraft().addScheduledTask(this::build);
+                } else {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors de la création du grade"));
+                }
+            }));
         } catch (NumberFormatException e) {
             app.openDialog(new Dialog.Message("Niveau et limite doivent être des nombres valides"));
         }
     }
 
-    private void handleMoveGrade(Company c, Grade grade, boolean moveUp) {
-        Grade[] grades = c.getGrades().stream()
-            .sorted(Comparator.comparingInt(Grade::getLevel).reversed())
-            .toArray(Grade[]::new);
-            
-        // Trouver l'index actuel du grade
-        int currentIndex = -1;
-        for(int i = 0; i < grades.length; i++) {
-            if(grades[i].getId().equals(grade.getId())) {
-                currentIndex = i;
-                break;
-            }
-        }
-        
-        if(currentIndex == -1) return;
-        
-        // Déterminer le grade avec lequel échanger
-        Grade targetGrade = null;
-        if(moveUp && currentIndex > 0) {
-            targetGrade = grades[currentIndex - 1]; // Grade au-dessus
-        } else if(!moveUp && currentIndex < grades.length - 1) {
-            targetGrade = grades[currentIndex + 1]; // Grade en-dessous
-        }
-        
-        if(targetGrade != null) {
-            // Échanger les niveaux
-            int tempLevel = grade.getLevel();
-            grade.setLevel(targetGrade.getLevel());
-            targetGrade.setLevel(tempLevel);
-            
-            // Sauvegarder (à implémenter dans le repo si nécessaire)
-            Minecraft.getMinecraft().addScheduledTask(this::build);
-        }
-    }
 
     private void handleDeleteGradeWithConfirmation(Company c, Grade gradeToDelete) {
         // Compter les employés ayant ce grade
@@ -597,38 +717,34 @@ public class CompanyLayout extends Layout
         
         Dialog.Confirmation dialog = new Dialog.Confirmation(message);
         dialog.setPositiveListener((mouseX, mouseY, mouseButton) -> {
-            // Transférer tous les employés vers le grade le plus bas
+            // D'abord transférer tous les employés vers le grade le plus bas
             for(EmployeeRecord emp : c.getEmployees()) {
                 if(emp.getGradeId().equals(gradeToDelete.getId())) {
-                    emp.setGradeId(lowestGrade.getId());
+                    NBTTagCompound changeData = new NBTTagCompound();
+                    changeData.setString("companyId", companyId);
+                    changeData.setString("playerUuid", emp.getPlayerUuid());
+                    changeData.setString("gradeId", lowestGrade.getId());
+                    
+                    TaskManager.sendTask(new TaskBusinessAction().op("change_grade", changeData));
                 }
             }
             
-            // Supprimer le grade
-            repo.removeGrade(companyId, gradeToDelete.getId());
-            Minecraft.getMinecraft().addScheduledTask(this::build);
+            // Puis supprimer le grade
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("companyId", companyId);
+            d.setString("gradeId", gradeToDelete.getId());
+            
+            TaskManager.sendTask(new TaskBusinessAction().op("remove_grade", d).setCallback((nbt, success) -> {
+                if (success) {
+                    Minecraft.getMinecraft().addScheduledTask(this::build);
+                } else {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors de la suppression"));
+                }
+            }));
         });
         app.openDialog(dialog);
     }
 
-    private void handleDeleteGrade(Company c, String gradeName) {
-        Grade playerGrade = currentUserGrade(c);
-        if (playerGrade == null || !playerGrade.getPermissions().canManageGrades) {
-            app.openDialog(new Dialog.Message(TextFormatting.RED + "Pas de permission"));
-            return;
-        }
-        
-        if(gradeName.isEmpty()) return;
-        
-        Grade toDelete = c.getGrades().stream()
-            .filter(g -> g.getName().equalsIgnoreCase(gradeName))
-            .findFirst().orElse(null);
-            
-        if(toDelete != null) {
-            repo.removeGrade(companyId, toDelete.getId());
-            Minecraft.getMinecraft().addScheduledTask(this::build);
-        }
-    }
 
     private String findCompanyIdByName(String name) {
         for(Company cc : repo.listCompaniesForPlayer(repo.getCurrentPlayerUuid())) {
@@ -649,5 +765,174 @@ public class CompanyLayout extends Layout
         return c.getGrades().stream()
             .filter(g -> g.getId().equals(rec.getGradeId()))
             .findFirst().orElse(null);
+    }
+    
+    private void openGradeEditDialog(Company company, Grade grade) {
+        Grade userGrade = currentUserGrade(company);
+        if(userGrade == null || !userGrade.getPermissions().canManageGrades) {
+            app.openDialog(new Dialog.Message("Pas de permission pour modifier les grades"));
+            return;
+        }
+        
+        if(grade.getLevel() >= userGrade.getLevel()) {
+            app.openDialog(new Dialog.Message("Vous ne pouvez pas modifier un grade supérieur ou égal au vôtre"));
+            return;
+        }
+        
+        // Créer un dialogue avec interface graphique moderne
+        Dialog editDialog = new Dialog() {
+            @Override
+            public void init(@Nullable NBTTagCompound intent) {
+                super.init(intent);
+                
+                setTitle("Modification du grade");
+                
+                // Créer le layout avec scroll pour éviter le débordement
+                ScrollableLayout content = new ScrollableLayout(300, 280, 180);
+                
+                int y = 10;
+                
+                // Titre
+                content.addComponent(new Label("Modification du grade: " + grade.getName(), 12, y));
+                y += 20;
+                
+                // Nom du grade
+                content.addComponent(new Label("Nom du grade :", 12, y));
+                y += 12;
+                TextField nameField = new TextField(12, y, 200);
+                nameField.setText(grade.getName());
+                content.addComponent(nameField);
+                y += 25;
+                
+                // Niveau hiérarchique
+                content.addComponent(new Label("Niveau hiérarchique :", 12, y));
+                content.addComponent(new Label("(Doit être < " + userGrade.getLevel() + ")", 140, y));
+                y += 12;
+                TextField levelField = new TextField(12, y, 100);
+                levelField.setText(String.valueOf(grade.getLevel()));
+                content.addComponent(levelField);
+                y += 25;
+                
+                // Limite de virement
+                content.addComponent(new Label("Limite de virement (€) :", 12, y));
+                y += 12;
+                TextField limitField = new TextField(12, y, 120);
+                limitField.setText(String.valueOf((int)grade.getPermissions().transferLimit));
+                content.addComponent(limitField);
+                y += 25;
+                
+                // Permissions
+                content.addComponent(new Label("Permissions :", 12, y));
+                y += 15;
+                
+                CheckBox recruitBox = new CheckBox("Peut recruter des employés", 12, y);
+                recruitBox.setSelected(grade.getPermissions().canRecruit);
+                content.addComponent(recruitBox);
+                y += 18;
+                
+                CheckBox manageBox = new CheckBox("Peut gérer les grades", 12, y);
+                manageBox.setSelected(grade.getPermissions().canManageGrades);
+                content.addComponent(manageBox);
+                y += 18;
+                
+                CheckBox promoteBox = new CheckBox("Peut promouvoir/rétrograder", 12, y);
+                promoteBox.setSelected(grade.getPermissions().canChangeEmployeeGrade);
+                content.addComponent(promoteBox);
+                y += 18;
+                
+                CheckBox fireBox = new CheckBox("Peut licencier des employés", 12, y);
+                fireBox.setSelected(grade.getPermissions().canFire);
+                content.addComponent(fireBox);
+                y += 25;
+                
+                // Boutons
+                Button saveBtn = new Button(12, y, 100, 18, "Sauvegarder", Icons.CHECK);
+                Button cancelBtn = new Button(120, y, 80, 18, "Annuler", Icons.CROSS);
+                
+                content.addComponent(saveBtn);
+                content.addComponent(cancelBtn);
+                
+                // Ajuster la hauteur du contenu pour permettre le scroll
+                content.height = Math.max(y + 25, 280);
+                
+                // Actions des boutons
+                saveBtn.setClickListener((mx, my, mb) -> {
+                    if(mb == 0) {
+                        String newName = nameField.getText().trim();
+                        String levelText = levelField.getText().trim();
+                        String limitText = limitField.getText().trim();
+                        
+                        if(newName.isEmpty()) {
+                            app.openDialog(new Dialog.Message("Le nom du grade ne peut pas être vide"));
+                            return;
+                        }
+                        
+                        try {
+                            int newLevel = Integer.parseInt(levelText);
+                            double newLimit = Double.parseDouble(limitText);
+                            
+                            // Vérifier que le niveau est valide selon le statut du joueur
+                            Company company = BusinessData.INSTANCE.getCompany(companyId);
+                            boolean isOwner = company != null && company.getOwnerUuid().equals(Minecraft.getMinecraft().player.getUniqueID().toString());
+                            
+                            if(isOwner) {
+                                // Le propriétaire peut créer des grades jusqu'au niveau 100
+                                if(newLevel <= 0 || newLevel > 100) {
+                                    app.openDialog(new Dialog.Message("Niveau invalide (doit être entre 1 et 100)"));
+                                    return;
+                                }
+                            } else {
+                                // Un employé ne peut créer que des grades strictement inférieurs au sien
+                                if(newLevel <= 0 || newLevel >= userGrade.getLevel()) {
+                                    app.openDialog(new Dialog.Message("Niveau invalide (doit être entre 1 et " + (userGrade.getLevel() - 1) + ")"));
+                                    return;
+                                }
+                            }
+                            
+                            if(newLimit < 0) {
+                                app.openDialog(new Dialog.Message("La limite de virement ne peut pas être négative"));
+                                return;
+                            }
+                            
+                            // Mettre à jour le grade
+                            NBTTagCompound d = new NBTTagCompound();
+                            d.setString("companyId", companyId);
+                            d.setString("gradeId", grade.getId());
+                            d.setString("name", newName);
+                            d.setInteger("level", newLevel);
+                            d.setDouble("transferLimit", newLimit);
+                            d.setBoolean("canRecruit", recruitBox.isSelected());
+                            d.setBoolean("canManageGrades", manageBox.isSelected());
+                            d.setBoolean("canChangeEmployeeGrade", promoteBox.isSelected());
+                            d.setBoolean("canFire", fireBox.isSelected());
+                            
+                            close();
+                            
+                            TaskManager.sendTask(new TaskBusinessAction().op("modify_grade", d).setCallback((nbt, success2) -> {
+                                if (success2) {
+                                    app.openDialog(new Dialog.Message("Grade modifié avec succès"));
+                                    Minecraft.getMinecraft().addScheduledTask(CompanyLayout.this::build);
+                                } else {
+                                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors de la modification du grade"));
+                                }
+                            }));
+                            
+                        } catch(NumberFormatException e) {
+                            app.openDialog(new Dialog.Message("Erreur de format dans les nombres"));
+                        }
+                    }
+                });
+                
+                cancelBtn.setClickListener((mx, my, mb) -> {
+                    if(mb == 0) {
+                        close();
+                    }
+                });
+                
+                setLayout(content);
+            }
+        };
+        
+        app.openDialog(editDialog);
     }
 }

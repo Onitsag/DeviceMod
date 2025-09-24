@@ -1,0 +1,351 @@
+[1mdiff --git a/src/main/java/fr/onitsag/faritech/event/BusinessEvents.java b/src/main/java/fr/onitsag/faritech/event/BusinessEvents.java[m
+[1mindex e512e08..d90db46 100644[m
+[1m--- a/src/main/java/fr/onitsag/faritech/event/BusinessEvents.java[m
+[1m+++ b/src/main/java/fr/onitsag/faritech/event/BusinessEvents.java[m
+[36m@@ -1,18 +1,35 @@[m
+ package fr.onitsag.faritech.event;[m
+ [m
+ import fr.onitsag.faritech.programs.business.data.BusinessData;[m
+[32m+[m[32mimport fr.onitsag.faritech.programs.business.service.BusinessRepository;[m
+ import net.minecraft.nbt.CompressedStreamTools;[m
+ import net.minecraft.nbt.NBTTagCompound;[m
+ import net.minecraftforge.common.DimensionManager;[m
+ import net.minecraftforge.event.world.WorldEvent;[m
+ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;[m
+[32m+[m[32mimport net.minecraftforge.fml.relauncher.Side;[m
+[32m+[m[32mimport net.minecraftforge.fml.relauncher.SideOnly;[m
+ [m
+ import java.io.File;[m
+ import java.io.IOException;[m
+ [m
+ public class BusinessEvents[m
+ {[m
+[31m-    private static final String FILE_NAME = "business.dat";[m
+[32m+[m[32m    private static String getFileName()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        // Distinguer entre mode solo et multijoueur[m
+[32m+[m[32m        try {[m
+[32m+[m[32m            net.minecraft.server.MinecraftServer server = net.minecraftforge.fml.common.FMLCommonHandler.instance().getMinecraftServerInstance();[m
+[32m+[m[32m            if (server != null && server.isDedicatedServer()) {[m
+[32m+[m[32m                return "business_multiplayer.dat";[m
+[32m+[m[32m            } else if (server != null && server.isSinglePlayer()) {[m
+[32m+[m[32m                return "business_singleplayer.dat";[m
+[32m+[m[32m            }[m
+[32m+[m[32m        } catch (Exception e) {[m
+[32m+[m[32m            // En cas d'erreur, utiliser le nom par défaut[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return "business.dat"; // Fallback[m
+[32m+[m[32m    }[m
+ [m
+     @SubscribeEvent[m
+     public void load(WorldEvent.Load event)[m
+[36m@@ -21,7 +38,7 @@[m [mpublic class BusinessEvents[m
+         {[m
+             try[m
+             {[m
+[31m-                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), FILE_NAME);[m
+[32m+[m[32m                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), getFileName());[m
+                 if(!data.exists())[m
+                 {[m
+                     return;[m
+[36m@@ -30,7 +47,16 @@[m [mpublic class BusinessEvents[m
+                 NBTTagCompound nbt = CompressedStreamTools.read(data);[m
+                 if(nbt != null)[m
+                 {[m
+[31m-                    BusinessData.INSTANCE.load(nbt);[m
+[32m+[m[32m                    if(event.getWorld().isRemote)[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        // Côté client : charger dans BusinessRepository[m
+[32m+[m[32m                        BusinessRepository.get().loadFromTag(nbt);[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    else[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        // Côté serveur : charger dans BusinessData[m
+[32m+[m[32m                        BusinessData.INSTANCE.load(nbt);[m
+[32m+[m[32m                    }[m
+                 }[m
+             }[m
+             catch (IOException e)[m
+[36m@@ -47,19 +73,34 @@[m [mpublic class BusinessEvents[m
+         {[m
+             try[m
+             {[m
+[31m-                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), FILE_NAME);[m
+[31m-                if(!data.exists())[m
+[32m+[m[32m                File data = new File(DimensionManager.getCurrentSaveRootDirectory(), getFileName());[m
+[32m+[m[32m                File tempData = new File(data.getAbsolutePath() + ".tmp");[m
+[32m+[m[41m                [m
+[32m+[m[32m                NBTTagCompound nbt = new NBTTagCompound();[m
+[32m+[m[32m                if(event.getWorld().isRemote)[m
+                 {[m
+[31m-                    data.createNewFile();[m
+[32m+[m[32m                    // Côté client : sauvegarder BusinessRepository[m
+[32m+[m[32m                    nbt = BusinessRepository.get().saveToTag();[m
+                 }[m
+[31m-[m
+[31m-                NBTTagCompound nbt = new NBTTagCompound();[m
+[31m-                BusinessData.INSTANCE.save(nbt);[m
+[31m-                CompressedStreamTools.write(nbt, data);[m
+[32m+[m[32m                else[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    // Côté serveur : sauvegarder BusinessData[m
+[32m+[m[32m                    BusinessData.INSTANCE.save(nbt);[m
+[32m+[m[32m                }[m
+[32m+[m[41m                [m
+[32m+[m[32m                // Écrire dans un fichier temporaire d'abord[m
+[32m+[m[32m                CompressedStreamTools.write(nbt, tempData);[m
+[32m+[m[41m                [m
+[32m+[m[32m                // Puis remplacer atomiquement (évite la corruption)[m
+[32m+[m[32m                if(data.exists()) {[m
+[32m+[m[32m                    data.delete();[m
+[32m+[m[32m                }[m
+[32m+[m[32m                tempData.renameTo(data);[m
+             }[m
+             catch (IOException e)[m
+             {[m
+[31m-                e.printStackTrace();[m
+[32m+[m[32m                System.err.println("Erreur sauvegarde business: " + e.getMessage());[m
+[32m+[m[32m                // Ne pas faire crasher le serveur pour un problème de sauvegarde[m
+             }[m
+         }[m
+     }[m
+[1mdiff --git a/src/main/java/fr/onitsag/faritech/programs/business/data/BusinessData.java b/src/main/java/fr/onitsag/faritech/programs/business/data/BusinessData.java[m
+[1mindex bf6b368..6d6aaf5 100644[m
+[1m--- a/src/main/java/fr/onitsag/faritech/programs/business/data/BusinessData.java[m
+[1m+++ b/src/main/java/fr/onitsag/faritech/programs/business/data/BusinessData.java[m
+[36m@@ -42,28 +42,23 @@[m [mpublic class BusinessData[m
+         Company c = new Company(id, name, ownerUuid);[m
+         [m
+         // Créer la hiérarchie de grades par défaut[m
+[31m-        // 1. Fondateur (niveau 100) - Toutes les permissions[m
+[31m-        Permissions foundatorPerm = new Permissions(true, true, true, true, Double.MAX_VALUE);[m
+[31m-        Grade foundator = new Grade(UUID.randomUUID().toString(), "Fondateur", 100, foundatorPerm);[m
+[31m-        c.getGrades().add(foundator);[m
+[31m-        [m
+[31m-        // 2. Co-Fondateur (niveau 80) - Presque toutes les permissions[m
+[31m-        Permissions coFoundatorPerm = new Permissions(true, true, true, true, 100000.0);[m
+[31m-        Grade coFoundator = new Grade(UUID.randomUUID().toString(), "Co-Fondateur", 80, coFoundatorPerm);[m
+[31m-        c.getGrades().add(coFoundator);[m
+[31m-        [m
+[31m-        // 3. Chef (niveau 50) - Peut recruter et gérer les employés[m
+[32m+[m[32m        Permissions founderPerm = new Permissions(true, true, true, true, Double.MAX_VALUE);[m
+[32m+[m[32m        Grade founder = new Grade(UUID.randomUUID().toString(), "Fondateur", 100, founderPerm);[m
+[32m+[m[32m        c.getGrades().add(founder);[m
+[32m+[m
+[32m+[m[32m        Permissions coFounderPerm = new Permissions(true, true, true, true, 100000.0);[m
+[32m+[m[32m        Grade coFounder = new Grade(UUID.randomUUID().toString(), "Co-Fondateur", 80, coFounderPerm);[m
+[32m+[m[32m        c.getGrades().add(coFounder);[m
+[32m+[m
+         Permissions chefPerm = new Permissions(true, false, true, true, 50000.0);[m
+         Grade chef = new Grade(UUID.randomUUID().toString(), "Chef", 50, chefPerm);[m
+         c.getGrades().add(chef);[m
+[31m-        [m
+[31m-        // 4. Employé (niveau 10) - Permissions basiques[m
+[32m+[m
+         Permissions employeePerm = new Permissions(false, false, false, false, 10000.0);[m
+         Grade employee = new Grade(UUID.randomUUID().toString(), "Employé", 10, employeePerm);[m
+         c.getGrades().add(employee);[m
+[31m-        [m
+[31m-        // Le créateur devient Fondateur[m
+[31m-        c.getEmployees().add(new EmployeeRecord(ownerUuid, ownerName, foundator.getId()));[m
+[32m+[m
+[32m+[m[32m        c.getEmployees().add(new EmployeeRecord(ownerUuid, ownerName, founder.getId()));[m
+         idToCompany.put(id, c);[m
+         broadcastState();[m
+         return c;[m
+[1mdiff --git a/src/main/java/fr/onitsag/faritech/programs/business/service/BusinessRepository.java b/src/main/java/fr/onitsag/faritech/programs/business/service/BusinessRepository.java[m
+[1mindex 5917319..0f94728 100644[m
+[1m--- a/src/main/java/fr/onitsag/faritech/programs/business/service/BusinessRepository.java[m
+[1m+++ b/src/main/java/fr/onitsag/faritech/programs/business/service/BusinessRepository.java[m
+[36m@@ -92,29 +92,23 @@[m [mpublic class BusinessRepository[m
+         String ownerUuid = getCurrentPlayerUuid();[m
+         Company company = new Company(id, name, ownerUuid);[m
+ [m
+[31m-        // Créer la hiérarchie de grades par défaut (identique au serveur)[m
+[31m-        // 1. Fondateur (niveau 100) - Toutes les permissions[m
+[31m-        Permissions foundatorPerm = new Permissions(true, true, true, true, Double.MAX_VALUE);[m
+[31m-        Grade foundator = new Grade(UUID.randomUUID().toString(), "Fondateur", 100, foundatorPerm);[m
+[31m-        company.getGrades().add(foundator);[m
+[31m-        [m
+[31m-        // 2. Co-Fondateur (niveau 80) - Presque toutes les permissions[m
+[31m-        Permissions coFoundatorPerm = new Permissions(true, true, true, true, 100000.0);[m
+[31m-        Grade coFoundator = new Grade(UUID.randomUUID().toString(), "Co-Fondateur", 80, coFoundatorPerm);[m
+[31m-        company.getGrades().add(coFoundator);[m
+[31m-        [m
+[31m-        // 3. Chef (niveau 50) - Peut recruter et gérer les employés[m
+[32m+[m[32m        Permissions founderPerm = new Permissions(true, true, true, true, Double.MAX_VALUE);[m
+[32m+[m[32m        Grade founder = new Grade(UUID.randomUUID().toString(), "Fondateur", 100, founderPerm);[m
+[32m+[m[32m        company.getGrades().add(founder);[m
+[32m+[m
+[32m+[m[32m        Permissions coFounderPerm = new Permissions(true, true, true, true, 100000.0);[m
+[32m+[m[32m        Grade coFounder = new Grade(UUID.randomUUID().toString(), "Co-Fondateur", 80, coFounderPerm);[m
+[32m+[m[32m        company.getGrades().add(coFounder);[m
+[32m+[m
+         Permissions chefPerm = new Permissions(true, false, true, true, 50000.0);[m
+         Grade chef = new Grade(UUID.randomUUID().toString(), "Chef", 50, chefPerm);[m
+         company.getGrades().add(chef);[m
+[31m-        [m
+[31m-        // 4. Employé (niveau 10) - Permissions basiques[m
+[32m+[m
+         Permissions employeePerm = new Permissions(false, false, false, false, 10000.0);[m
+         Grade employee = new Grade(UUID.randomUUID().toString(), "Employé", 10, employeePerm);[m
+         company.getGrades().add(employee);[m
+[31m-        [m
+[31m-        // Le créateur devient Fondateur[m
+[31m-        company.getEmployees().add(new EmployeeRecord(ownerUuid, getCurrentPlayerName(), foundator.getId()));[m
+[32m+[m
+[32m+[m[32m        company.getEmployees().add(new EmployeeRecord(ownerUuid, getCurrentPlayerName(), founder.getId()));[m
+ [m
+         companiesById.put(id, company);[m
+         membershipsByPlayer.computeIfAbsent(ownerUuid, key -> new LinkedHashSet<>()).add(id);[m
+[1mdiff --git a/src/main/java/fr/onitsag/faritech/programs/business/task/TaskBusinessAction.java b/src/main/java/fr/onitsag/faritech/programs/business/task/TaskBusinessAction.java[m
+[1mindex e9b6362..1331f49 100644[m
+[1m--- a/src/main/java/fr/onitsag/faritech/programs/business/task/TaskBusinessAction.java[m
+[1m+++ b/src/main/java/fr/onitsag/faritech/programs/business/task/TaskBusinessAction.java[m
+[36m@@ -81,13 +81,17 @@[m [mpublic class TaskBusinessAction extends Task[m
+                     String gradeId = d.getString("gradeId");[m
+ [m
+                     EntityPlayerMP target = null;[m
+[31m-                    try[m
+[32m+[m[41m                    [m
+[32m+[m[32m                    if(playerUuid != null && !playerUuid.isEmpty())[m
+                     {[m
+[31m-                        target = player.getServer().getPlayerList().getPlayerByUUID(UUID.fromString(playerUuid));[m
+[32m+[m[32m                        try[m
+[32m+[m[32m                        {[m
+[32m+[m[32m                            target = player.getServer().getPlayerList().getPlayerByUUID(UUID.fromString(playerUuid));[m
+[32m+[m[32m                        }[m
+[32m+[m[32m                        catch(IllegalArgumentException ignored) {}[m
+                     }[m
+[31m-                    catch(IllegalArgumentException ignored) {}[m
+ [m
+[31m-                    if(target == null && !playerName.isEmpty())[m
+[32m+[m[32m                    if(target == null && playerName != null && !playerName.isEmpty())[m
+                     {[m
+                         target = player.getServer().getPlayerList().getPlayerByUsername(playerName);[m
+                     }[m
+[36m@@ -97,11 +101,15 @@[m [mpublic class TaskBusinessAction extends Task[m
+                         playerUuid = target.getUniqueID().toString();[m
+                         playerName = target.getName();[m
+                     }[m
+[32m+[m[32m                    else if(playerName != null && !playerName.isEmpty())[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        playerUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + playerName).getBytes()).toString();[m
+[32m+[m[32m                    }[m
+ [m
+                     final String finalUuid = playerUuid;[m
+                     if(c.getEmployees().stream().noneMatch(emp -> emp.getPlayerUuid().equals(finalUuid)))[m
+                     {[m
+[31m-                        c.getEmployees().add(new fr.onitsag.faritech.programs.business.model.EmployeeRecord(playerUuid, playerName, gradeId));[m
+[32m+[m[32m                        c.getEmployees().add(new fr.onitsag.faritech.programs.business.model.EmployeeRecord(finalUuid, playerName, gradeId));[m
+                         ok = true;[m
+                     }[m
+                 }[m
+[1mdiff --git a/src/main/java/fr/onitsag/faritech/programs/business/ui/CompanyLayout.java b/src/main/java/fr/onitsag/faritech/programs/business/ui/CompanyLayout.java[m
+[1mindex 9bd3757..1f4c35c 100644[m
+[1m--- a/src/main/java/fr/onitsag/faritech/programs/business/ui/CompanyLayout.java[m
+[1m+++ b/src/main/java/fr/onitsag/faritech/programs/business/ui/CompanyLayout.java[m
+[36m@@ -14,7 +14,9 @@[m [mimport net.minecraft.client.Minecraft;[m
+ import net.minecraft.nbt.NBTTagCompound;[m
+ import net.minecraft.util.text.TextFormatting;[m
+ [m
+[32m+[m[32mimport java.util.ArrayList;[m
+ import java.util.Comparator;[m
+[32m+[m[32mimport java.util.List;[m
+ import java.util.UUID;[m
+ [m
+ public class CompanyLayout extends Layout[m
+[36m@@ -145,100 +147,142 @@[m [mpublic class CompanyLayout extends Layout[m
+ [m
+     private void buildEmployees(Layout content)[m
+     {[m
+[32m+[m[32m        content.clear();[m
+         Company c = repo.getCompany(companyId).orElse(null);[m
+         if(c == null) return;[m
+[31m-        [m
+[31m-        // Colonne gauche - Liste employés[m
+[31m-        content.addComponent(new Label("Employés:", 10, 0));[m
+[31m-        [m
+[31m-        int y = 14;[m
+[31m-        int count = 0;[m
+[31m-        for(EmployeeRecord emp : c.getEmployees()) {[m
+[31m-            if(count >= 10) break; // Max 10 employés affichés[m
+[31m-            [m
+[31m-            Grade grade = c.getGrades().stream()[m
+[31m-                .filter(g -> g.getId().equals(emp.getGradeId()))[m
+[31m-                .findFirst().orElse(null);[m
+[31m-            String gradeText = grade != null ? " (" + grade.getName() + ")" : "";[m
+[31m-            content.addComponent(new Label("• " + emp.getPlayerName() + gradeText, 12, y));[m
+[31m-            y += 12;[m
+[31m-            count++;[m
+[31m-        }[m
+ [m
+[31m-        // Colonne droite - Contrôles[m
+[31m-        content.addComponent(new Label("Ajouter:", 180, 0));[m
+[31m-        [m
+[31m-        TextField playerField = new TextField(180, 14, 100);[m
+[31m-        playerField.setPlaceholder("Joueur");[m
+[31m-        content.addComponent(playerField);[m
+[31m-        [m
+[31m-        // Filtrer les grades selon la hiérarchie (seulement les grades inférieurs ou égaux si on peut recruter)[m
+         Grade userGrade = currentUserGrade(c);[m
+[31m-        Grade[] availableGrades;[m
+[31m-        if(userGrade != null) {[m
+[31m-            availableGrades = c.getGrades().stream()[m
+[31m-                .filter(g -> g.getLevel() <= userGrade.getLevel()) // <= au lieu de < pour inclure notre niveau[m
+[31m-                .toArray(Grade[]::new);[m
+[31m-        } else {[m
+[31m-            availableGrades = c.getGrades().toArray(new Grade[0]); // Si pas de grade, montrer tous[m
+[32m+[m[32m        Permissions perms = userGrade != null ? userGrade.getPermissions() : null;[m
+[32m+[m[32m        boolean canFire = perms != null && perms.canFire;[m
+[32m+[m[32m        boolean canChangeGrade = perms != null && perms.canChangeEmployeeGrade;[m
+[32m+[m[32m        boolean canRecruit = perms != null && perms.canRecruit;[m
+[32m+[m[32m        int userLevel = userGrade != null ? userGrade.getLevel() : -1;[m
+[32m+[m
+[32m+[m[32m        content.addComponent(new Label("Employés de l'entreprise", 10, 0));[m
+[32m+[m
+[32m+[m[32m        int y = 16;[m
+[32m+[m[32m        List<EmployeeRecord> employees = c.getEmployees();[m
+[32m+[m[32m        if(employees.isEmpty())[m
+[32m+[m[32m        {[m
+[32m+[m[32m            content.addComponent(new Label("Aucun employé pour le moment.", 12, y));[m
+[32m+[m[32m            y += 16;[m
+         }[m
+[31m-        [m
+[31m-        ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(180, 32, 100, availableGrades);[m
+[31m-        [m
+[31m-        // Pré-sélectionner le grade "Employé" par défaut[m
+[31m-        for(Grade grade : availableGrades) {[m
+[31m-            if(grade.getName().equals("Employé")) {[m
+[31m-                gradeCombo.setSelectedItem(grade);[m
+[31m-                break;[m
+[32m+[m[32m        else[m
+[32m+[m[32m        {[m
+[32m+[m[32m            for(EmployeeRecord emp : employees)[m
+[32m+[m[32m            {[m
+[32m+[m[32m                Grade empGrade = c.getGrades().stream()[m
+[32m+[m[32m                    .filter(g -> g.getId().equals(emp.getGradeId()))[m
+[32m+[m[32m                    .findFirst().orElse(null);[m
+[32m+[m
+[32m+[m[32m                content.addComponent(new Label("• " + emp.getPlayerName(), 12, y));[m
+[32m+[m
+[32m+[m[32m                boolean canManageThisEmployee = userGrade != null && empGrade != null && empGrade.getLevel() < userLevel;[m
+[32m+[m
+[32m+[m[32m                if(canChangeGrade && canManageThisEmployee)[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    List<Grade> available = new ArrayList<>();[m
+[32m+[m[32m                    for(Grade grade : c.getGrades())[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        if(grade.getLevel() <= userLevel)[m
+[32m+[m[32m                        {[m
+[32m+[m[32m                            available.add(grade);[m
+[32m+[m[32m                        }[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    if(available.isEmpty())[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        String gradeText = empGrade != null ? empGrade.getName() : "Sans grade";[m
+[32m+[m[32m                        content.addComponent(new Label("(" + gradeText + ")", 140, y));[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    else[m
+[32m+[m[32m                    {[m
+[32m+[m[32m                        ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(140, y - 2, 120, available.toArray(new Grad

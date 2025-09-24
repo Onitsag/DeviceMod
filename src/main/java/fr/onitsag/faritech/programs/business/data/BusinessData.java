@@ -23,6 +23,11 @@ public class BusinessData
 
     private BusinessData() {}
 
+    public synchronized void clear()
+    {
+        idToCompany.clear();
+    }
+
     public synchronized List<Company> listCompaniesForPlayer(String playerUuid)
     {
         return idToCompany.values().stream()
@@ -121,18 +126,28 @@ public class BusinessData
     public synchronized void save(NBTTagCompound tag)
     {
         NBTTagCompound data = toNetworkTag();
-        tag.setTag("companies", data.getTagList("companies", Constants.NBT.TAG_COMPOUND));
-        tag.setTag("memberships", data.getTagList("memberships", Constants.NBT.TAG_COMPOUND));
+        NBTTagList companiesTag = data.getTagList("companies", Constants.NBT.TAG_COMPOUND);
+        NBTTagList membershipsTag = data.getTagList("memberships", Constants.NBT.TAG_COMPOUND);
+        
+        tag.setTag("companies", companiesTag);
+        tag.setTag("memberships", membershipsTag);
     }
 
     public synchronized void load(NBTTagCompound tag)
     {
         idToCompany.clear();
+        
         NBTTagList list = tag.getTagList("companies", Constants.NBT.TAG_COMPOUND);
+        
         for(int i=0;i<list.tagCount();i++)
         {
-            Company c = Company.fromTag(list.getCompoundTagAt(i));
-            idToCompany.put(c.getId(), c);
+            try {
+                Company c = Company.fromTag(list.getCompoundTagAt(i));
+                idToCompany.put(c.getId(), c);
+            } catch(Exception e) {
+                System.err.println("[ERROR] BusinessData.load() - Erreur lors du chargement de l'entreprise #" + i + ": " + e.getMessage());
+                e.printStackTrace();
+            }
         }
 
         // memberships conservées pour compatibilité future

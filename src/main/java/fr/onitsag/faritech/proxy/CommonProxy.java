@@ -83,6 +83,10 @@ public class CommonProxy
 			PacketHandler.INSTANCE.sendTo(new MessageSyncApplications(allowedApps), (EntityPlayerMP) event.player);
 		}
 		PacketHandler.INSTANCE.sendTo(new MessageSyncConfig(), (EntityPlayerMP) event.player);
+		
+		// Synchroniser les données business pour le joueur qui vient de se connecter
+		NBTTagCompound businessData = fr.onitsag.faritech.programs.business.data.BusinessData.INSTANCE.toNetworkTag();
+		PacketHandler.INSTANCE.sendTo(new fr.onitsag.faritech.programs.business.network.MessageSyncBusiness(businessData), (EntityPlayerMP) event.player);
 	}
 
 	@SubscribeEvent

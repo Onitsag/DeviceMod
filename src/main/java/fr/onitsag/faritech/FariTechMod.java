@@ -100,6 +100,7 @@ public class FariTechMod
 		MinecraftForge.EVENT_BUS.register(new EmailEvents());
 		MinecraftForge.EVENT_BUS.register(new BankEvents());
 		MinecraftForge.EVENT_BUS.register(new PoliceEvents());
+		MinecraftForge.EVENT_BUS.register(new fr.onitsag.faritech.event.BusinessEvents());
 
 		registerApplications();
 
@@ -191,12 +192,6 @@ public class FariTechMod
 		PrintingManager.registerPrint(new ResourceLocation(Reference.MOD_ID, "picture"), ApplicationPixelPainter.PicturePrint.class);
 	}
 
-    @net.minecraftforge.fml.common.Mod.EventHandler
-    public void onServerStarting(net.minecraftforge.fml.common.event.FMLServerStartingEvent event)
-    {
-        // S’assurer que les listeners BusinessEvents sont enregistrés
-        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new fr.onitsag.faritech.event.BusinessEvents());
-    }
 
 	public static Logger getLogger()
 	{
