@@ -57,28 +57,20 @@ public class ApplicationBusinessManager extends Application
     {
         if(mainLayout != null) mainLayout.refresh();
 
-        // Si on est dans une page d'entreprise, vérifier si le joueur fait toujours partie de cette entreprise
+        // Si on est dans une page d'entreprise, simplement la rafraîchir si l'entreprise existe encore
         if(getCurrentLayout() instanceof CompanyLayout)
         {
             CompanyLayout companyLayout = (CompanyLayout) getCurrentLayout();
             String currentCompanyId = companyLayout.getCompanyId();
-            String currentPlayerUuid = repo.getCurrentPlayerUuid();
-            
-            // Vérifier si le joueur fait encore partie de cette entreprise
             Company company = repo.getCompany(currentCompanyId).orElse(null);
-            boolean stillMember = company != null && 
-                (company.getOwnerUuid().equals(currentPlayerUuid) || 
-                 company.getEmployees().stream().anyMatch(e -> e.getPlayerUuid().equals(currentPlayerUuid)));
-            
-            if(!stillMember)
+            if(company != null)
             {
-                // Le joueur n'est plus dans cette entreprise, le rediriger vers la page principale
-                returnToMainMenu();
+                companyLayout.refresh();
             }
             else
             {
-                // Le joueur est encore dans l'entreprise, rafraîchir la page
-                companyLayout.refresh();
+                // Entreprise supprimée: retour au menu principal
+                returnToMainMenu();
             }
         }
 

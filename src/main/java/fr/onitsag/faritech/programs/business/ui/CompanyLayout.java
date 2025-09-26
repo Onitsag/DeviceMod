@@ -12,6 +12,7 @@ import fr.onitsag.faritech.programs.business.service.BusinessRepository;
 import fr.onitsag.faritech.programs.business.task.TaskBusinessAction;
 import fr.onitsag.faritech.programs.business.data.BusinessData;
 import fr.onitsag.faritech.api.task.TaskManager;
+import fr.onitsag.faritech.economy.EconomyManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.nbt.NBTTagCompound;
@@ -29,6 +30,13 @@ public class CompanyLayout extends Layout
     private final String companyId;
 
     private Tab current = Tab.TRANSACTIONS;
+    private boolean requestedVaultBalance = false;
+
+    // Référence persistante pour mettre à jour le label de solde
+    private Label personalBalanceLabelRef;
+    private boolean balanceRequestInFlight = false;
+    private long lastBalanceRequestMs = 0L;
+    private static int paginationPage = 0;
 
     public CompanyLayout(ApplicationBusinessManager app, BusinessRepository repo, String companyId)
     {
@@ -61,9 +69,9 @@ public class CompanyLayout extends Layout
         try { fr.onitsag.faritech.core.Laptop.getSystem().closeContext(); } catch (Throwable ignore) {}
         
         // Header compact avec onglets
-        Button bTx = new Button(6, 6, 60, 14, "Transactions");
-        Button bEm = new Button(68, 6, 60, 14, "Employés"); 
-        Button bGr = new Button(130, 6, 60, 14, "Grades");
+        Button bTx = new Button(6, 6, 74, 14, "Transactions");
+        Button bEm = new Button(82, 6, 60, 14, "Employés"); 
+        Button bGr = new Button(144, 6, 60, 14, "Grades");
         
         bTx.setEnabled(current != Tab.TRANSACTIONS);
         bEm.setEnabled(current != Tab.EMPLOYEES);
@@ -109,45 +117,257 @@ public class CompanyLayout extends Layout
         Company c = repo.getCompany(companyId).orElse(null);
         if(c == null) return;
 
-        // Solde fixe en haut
-        addComponent(new Label("Solde: " + String.format("%.2f", c.getBalance()) + "€", 10, 24));
-
-        // Liste des transactions scrollable au milieu
-        addComponent(new Label("Dernières transactions:", 10, 40));
-        ScrollableLayout transactionsList = new ScrollableLayout(0, 52, 362, 1, 80);
-        addComponent(transactionsList);
+        // Créer une zone scrollable pour tout le contenu
+        // Largeur intérieure égale à la largeur de la fenêtre, hauteur initiale = 0 (s'ajuste à la fin)
+        ScrollableLayout mainContent = new ScrollableLayout(0, 24, 362, 1, 140);
+        addComponent(mainContent);
         
         int y = 0;
-        for(BizTransaction t : c.getTransactions()) {
-            String text = t.toString();
-            if(Minecraft.getMinecraft().fontRenderer.getStringWidth(text) > 340) {
-                text = Minecraft.getMinecraft().fontRenderer.trimStringToWidth(text, 340);
-            }
-            transactionsList.addComponent(new Label(text, 12, y));
-            y += 12;
+        
+        // ============ SECTION SOLDES ============
+        mainContent.addComponent(new Label("💰 SOLDES", 10, y));
+        y += 16;
+        
+        // Solde de l'entreprise
+        mainContent.addComponent(new Label("Entreprise: " + String.format("%.2f", c.getBalance()) + "€", 20, y));
+        y += 12;
+        
+        // Solde personnel du joueur
+        personalBalanceLabelRef = new Label("Personnel: chargement...", 20, y);
+        mainContent.addComponent(personalBalanceLabelRef);
+        // Requête serveur pour récupérer le solde Vault réel (anti-spam: max 1/5s)
+        long now = System.currentTimeMillis();
+        if (!balanceRequestInFlight && now - lastBalanceRequestMs > 5000) {
+            balanceRequestInFlight = true;
+            lastBalanceRequestMs = now;
+            TaskManager.sendTask(new TaskBusinessAction().op("get_vault_balance", new NBTTagCompound()).setCallback((nbt, success) -> {
+                Minecraft.getMinecraft().addScheduledTask(() -> {
+                    try {
+                        if(success && nbt != null && nbt.hasKey("balance")) {
+                            double bal = nbt.getDouble("balance");
+                            if (personalBalanceLabelRef != null) {
+                                personalBalanceLabelRef.setText("Personnel: " + String.format("%.2f€", bal));
+                            }
+                            System.out.println("[CompanyLayout] Solde personnel mis à jour: " + bal + "€");
+                        } else {
+                            if (personalBalanceLabelRef != null) {
+                                personalBalanceLabelRef.setText("Personnel: erreur (Vault indisponible)");
+                            }
+                            System.err.println("[CompanyLayout] Échec de récupération du solde - success:" + success + " nbt:" + nbt);
+                        }
+                    } catch (Exception e) {
+                        if (personalBalanceLabelRef != null) {
+                            personalBalanceLabelRef.setText("Personnel: erreur de traitement");
+                        }
+                        System.err.println("[CompanyLayout] Exception dans callback: " + e.getMessage());
+                        e.printStackTrace();
+                    } finally {
+                        balanceRequestInFlight = false;
+                        app.markForLayoutUpdate();
+                    }
+                });
+            }));
         }
-        transactionsList.height = Math.max(y, 80);
-
-        // Section virement fixe en bas
-        int formY = 140;
-        addComponent(new Label("Virement:", 10, formY));
-        formY += 12;
+        y += 20;
         
-        TextField target = new TextField(10, formY, 120);
-        target.setPlaceholder("Entreprise");
-        addComponent(target);
+        // ============ SECTION TRANSFERTS PERSONNELS ============
+        mainContent.addComponent(new Label("👤 TRANSFERTS PERSONNELS", 10, y));
+        y += 16;
         
-        TextField amount = new TextField(134, formY, 60);
-        amount.setText("0");
-        addComponent(amount);
+        // Description
+        mainContent.addComponent(new Label("Entre votre compte personnel et l'entreprise", 20, y));
+        y += 16;
         
-        Button send = new Button(198, formY, 50, 16, "Virer", Icons.CASH);
-        send.setClickListener((mx,my,mb)->{
+        // Champ montant
+        TextField personalAmount = new TextField(20, y, 100);
+        personalAmount.setText("100.00");
+        personalAmount.setPlaceholder("Montant en €");
+        mainContent.addComponent(personalAmount);
+        
+        // Boutons côte à côte (envoi via tâches serveur)
+        Button depositBtn = new Button(125, y, 80, 18, "Déposer", Icons.ARROW_DOWN);
+        depositBtn.setClickListener((mx,my,mb) -> {
             if(mb == 0) {
-                handleTransfer(c, target.getText().trim(), amount.getText().trim());
+                String amountStr = personalAmount.getText().trim();
+                try {
+                    double amount = Double.parseDouble(amountStr);
+                    if(amount <= 0) { app.openDialog(new Dialog.Message("Montant invalide")); return; }
+                    NBTTagCompound d = new NBTTagCompound();
+                    d.setString("companyId", companyId);
+                    d.setDouble("amount", amount);
+                    TaskManager.sendTask(new TaskBusinessAction().op("player_deposit_to_company", d).setCallback((nbt, success) -> {
+                        if(success) {
+                            app.openDialog(new Dialog.Message("Dépôt effectué"));
+                            Minecraft.getMinecraft().addScheduledTask(this::build);
+                        } else {
+                            app.openDialog(new Dialog.Message(TextFormatting.RED + "Échec du dépôt (solde insuffisant ?)"));
+                        }
+                    }));
+                } catch (NumberFormatException e) {
+                    app.openDialog(new Dialog.Message("Montant invalide"));
+                }
             }
         });
-        addComponent(send);
+        mainContent.addComponent(depositBtn);
+        
+        Button withdrawBtn = new Button(210, y, 80, 18, "Retirer", Icons.ARROW_UP);
+        withdrawBtn.setClickListener((mx,my,mb) -> {
+            if(mb == 0) {
+                String amountStr = personalAmount.getText().trim();
+                try {
+                    double amount = Double.parseDouble(amountStr);
+                    if(amount <= 0) { app.openDialog(new Dialog.Message("Montant invalide")); return; }
+                    NBTTagCompound d = new NBTTagCompound();
+                    d.setString("companyId", companyId);
+                    d.setDouble("amount", amount);
+                    TaskManager.sendTask(new TaskBusinessAction().op("company_withdraw_to_player", d).setCallback((nbt, success) -> {
+                        if(success) {
+                            app.openDialog(new Dialog.Message("Retrait effectué"));
+                            Minecraft.getMinecraft().addScheduledTask(this::build);
+                        } else {
+                            app.openDialog(new Dialog.Message(TextFormatting.RED + "Échec du retrait (fonds insuffisants ?)"));
+                        }
+                    }));
+                } catch (NumberFormatException e) {
+                    app.openDialog(new Dialog.Message("Montant invalide"));
+                }
+            }
+        });
+        mainContent.addComponent(withdrawBtn);
+        y += 30;
+        
+        // ============ SECTION VIREMENTS INTER-ENTREPRISES ============
+        mainContent.addComponent(new Label("🏢 VIREMENTS INTER-ENTREPRISES", 10, y));
+        y += 16;
+        
+        mainContent.addComponent(new Label("Transférer vers une autre entreprise", 20, y));
+        y += 16;
+        
+        // Nom de l'entreprise cible
+        mainContent.addComponent(new Label("Entreprise destinataire:", 20, y));
+        y += 12;
+        TextField targetCompany = new TextField(20, y, 180);
+        targetCompany.setPlaceholder("Nom de l'entreprise");
+        mainContent.addComponent(targetCompany);
+        y += 20;
+        
+        // Montant et bouton sur même ligne
+        mainContent.addComponent(new Label("Montant:", 20, y));
+        TextField transferAmount = new TextField(70, y, 80);
+        transferAmount.setText("0.00");
+        transferAmount.setPlaceholder("€");
+        mainContent.addComponent(transferAmount);
+        
+        Button transferBtn = new Button(155, y, 80, 18, "Virer", Icons.CASH);
+        transferBtn.setClickListener((mx,my,mb) -> {
+            if(mb == 0) {
+                handleTransfer(c, targetCompany.getText().trim(), transferAmount.getText().trim());
+            }
+        });
+        mainContent.addComponent(transferBtn);
+        y += 30;
+        
+        // ============ SECTION TRANSFERTS VERS JOUEURS ============
+        mainContent.addComponent(new Label("👥 TRANSFERTS VERS JOUEURS", 10, y));
+        y += 16;
+        
+        mainContent.addComponent(new Label("Verser de l'argent directement à un joueur", 20, y));
+        y += 16;
+        
+        // Nom du joueur
+        mainContent.addComponent(new Label("Nom du joueur:", 20, y));
+        y += 12;
+        TextField targetPlayer = new TextField(20, y, 180);
+        targetPlayer.setPlaceholder("Nom du joueur");
+        mainContent.addComponent(targetPlayer);
+        y += 20;
+        
+        // Montant et bouton pour joueur
+        mainContent.addComponent(new Label("Montant:", 20, y));
+        TextField playerAmount = new TextField(70, y, 80);
+        playerAmount.setText("0.00");
+        playerAmount.setPlaceholder("€");
+        mainContent.addComponent(playerAmount);
+        
+        Button payPlayerBtn = new Button(155, y, 80, 18, "Payer", Icons.COIN);
+        payPlayerBtn.setClickListener((mx,my,mb) -> {
+            if(mb == 0) {
+                String name = targetPlayer.getText().trim();
+                String amountStr = playerAmount.getText().trim();
+                try {
+                    if(name.isEmpty()) { app.openDialog(new Dialog.Message("Nom du joueur requis")); return; }
+                    double amount = Double.parseDouble(amountStr);
+                    if(amount <= 0) { app.openDialog(new Dialog.Message("Montant invalide")); return; }
+                    Dialog.Confirmation confirm = new Dialog.Confirmation("Payer " + name + " " + EconomyManager.formatMoney(amount) + " depuis l'entreprise ?");
+                    confirm.setPositiveListener((mx2,my2,mb2) -> {
+                        NBTTagCompound d = new NBTTagCompound();
+                        d.setString("companyId", companyId);
+                        d.setString("targetName", name);
+                        d.setDouble("amount", amount);
+                        TaskManager.sendTask(new TaskBusinessAction().op("company_pay_player", d).setCallback((nbt, success) -> {
+                            if(success) {
+                                app.openDialog(new Dialog.Message("Paiement effectué"));
+                                Minecraft.getMinecraft().addScheduledTask(this::build);
+                            } else {
+                                app.openDialog(new Dialog.Message(TextFormatting.RED + "Échec du paiement (joueur hors ligne ? fonds insuffisants ?)"));
+                            }
+                        }));
+                    });
+                    app.openDialog(confirm);
+                } catch (NumberFormatException e) {
+                    app.openDialog(new Dialog.Message("Montant invalide"));
+                }
+            }
+        });
+        mainContent.addComponent(payPlayerBtn);
+        y += 30;
+        
+        // ============ SECTION HISTORIQUE AVEC PAGINATION ============
+        mainContent.addComponent(new Label("📋 HISTORIQUE DES TRANSACTIONS", 10, y));
+        y += 16;
+
+        final int pageSize = 12;
+        // Conserver la page dans un champ statique simple par session (option rapide)
+        if(paginationPage < 0) paginationPage = 0;
+        int total = c.getTransactions().size();
+        int totalPages = Math.max(1, (int)Math.ceil(total / (double)pageSize));
+        if(paginationPage >= totalPages) paginationPage = totalPages - 1;
+
+        // Boutons pagination
+        Button prev = new Button(10, y, 16, 12, "<");
+        Button next = new Button(30, y, 16, 12, ">");
+        Label pageInfo = new Label((paginationPage+1) + "/" + totalPages, 52, y+2);
+        prev.setEnabled(paginationPage > 0);
+        next.setEnabled(paginationPage < totalPages - 1);
+        prev.setClickListener((mx,my,mb)->{ if(mb==0){ paginationPage--; Minecraft.getMinecraft().addScheduledTask(this::build); }});
+        next.setClickListener((mx,my,mb)->{ if(mb==0){ paginationPage++; Minecraft.getMinecraft().addScheduledTask(this::build); }});
+        mainContent.addComponent(prev);
+        mainContent.addComponent(next);
+        mainContent.addComponent(pageInfo);
+        y += 16;
+
+        if(total == 0) {
+            mainContent.addComponent(new Label("Aucune transaction pour le moment", 20, y));
+            y += 16;
+        } else {
+            int start = total - (paginationPage * pageSize) - 1; // index de départ (du plus récent)
+            int end = Math.max(-1, start - pageSize); // exclusif
+            for(int i = start; i > end; i--) {
+                if(i < 0) break;
+                BizTransaction t = c.getTransactions().get(i);
+                String typeIcon = getTransactionIcon(t.getType());
+                String amount = String.format("%.2f€", t.getAmount());
+                String description = t.getDescription();
+                if(description.length() > 35) description = description.substring(0, 32) + "...";
+                String transactionText = typeIcon + " " + amount + " - " + description;
+                Label transactionLabel = new Label(transactionText, 20, y);
+                mainContent.addComponent(transactionLabel);
+                y += 14;
+            }
+        }
+        
+        // Ajuster la hauteur du contenu scrollable (contenu interne)
+        mainContent.height = Math.max(y + 24, 200);
     }
 
     private void buildEmployees(Layout content)
@@ -203,57 +423,80 @@ public class CompanyLayout extends Layout
         content.addComponent(selectedGradeLabel);
         
         // Boutons d'action
-        Button changeGradeBtn = new Button(rightX, 56, 80, 18, "Gérer", Icons.EDIT);
+        Button changeGradeBtn = new Button(rightX, 56, 70, 18, "Gérer", Icons.EDIT);
         changeGradeBtn.setEnabled(false);
+        changeGradeBtn.setVisible(false);
         content.addComponent(changeGradeBtn);
         
-        Button fireBtn = new Button(rightX + 85, 56, 60, 18, "Licencier", Icons.TRASH);
+        Button fireBtn = new Button(rightX + 75, 56, 70, 18, "Licencier", Icons.TRASH);
         fireBtn.setEnabled(false);
+        fireBtn.setVisible(false);
         content.addComponent(fireBtn);
         
-        // Section recrutement
-        content.addComponent(new Label("Recruter :", rightX, 90));
-        
-        TextField playerField = new TextField(rightX, 106, 120);
-        playerField.setPlaceholder("Nom du joueur");
-        content.addComponent(playerField);
-        
-        Grade[] availableGrades = c.getGrades().stream()
-            .filter(g -> g.getLevel() <= (userGrade != null ? userGrade.getLevel() : -1))
-            .toArray(Grade[]::new);
+        // Section recrutement (visible uniquement si permission)
+        if(canRecruit) {
+            content.addComponent(new Label("Recruter :", rightX, 90));
             
-        ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(rightX, 124, 120, availableGrades);
-        // Pré-sélectionner "Employé"
-        for(Grade grade : availableGrades) {
-            if(grade.getName().equals("Employé")) {
-                gradeCombo.setSelectedItem(grade);
-                break;
+            TextField playerField = new TextField(rightX, 106, 120);
+            playerField.setPlaceholder("Nom du joueur");
+            content.addComponent(playerField);
+            
+            Grade[] availableGrades = c.getGrades().stream()
+                .filter(g -> userGrade != null && g.getLevel() < userGrade.getLevel())
+                .toArray(Grade[]::new);
+                
+            ComboBox.List<Grade> gradeCombo = new ComboBox.List<>(rightX, 124, 120, availableGrades);
+            // Pré-sélectionner "Employé"
+            for(Grade grade : availableGrades) {
+                if(grade.getName().equals("Employé")) {
+                    gradeCombo.setSelectedItem(grade);
+                    break;
+                }
             }
+            content.addComponent(gradeCombo);
+            
+            Button recruitBtn = new Button(rightX, 142, 80, 18, "Recruter", Icons.PLUS);
+            recruitBtn.setEnabled(true);
+            content.addComponent(recruitBtn);
+            
+            recruitBtn.setClickListener((mx, my, mb) -> {
+                if(mb == 0) {
+                    handleAddEmployee(c, playerField, gradeCombo);
+                }
+            });
         }
-        content.addComponent(gradeCombo);
-        
-        Button recruitBtn = new Button(rightX, 142, 80, 18, "Recruter", Icons.PLUS);
-        recruitBtn.setEnabled(canRecruit);
-        content.addComponent(recruitBtn);
         
         // LOGIQUE DE SÉLECTION
         employeeList.setItemClickListener((employee, index, mouseButton) -> {
-            if(mouseButton == 0 && employee != null) {
-                // Mettre à jour les infos affichées
-                Grade empGrade = c.getGrades().stream()
-                    .filter(g -> g.getId().equals(employee.getGradeId()))
-                    .findFirst().orElse(null);
+            if(mouseButton == 0) {
+                if(employee != null) {
+                    // Mettre à jour les infos affichées
+                    Grade empGrade = c.getGrades().stream()
+                        .filter(g -> g.getId().equals(employee.getGradeId()))
+                        .findFirst().orElse(null);
+                        
+                    selectedEmployeeLabel.setText("Employé: " + employee.getPlayerName());
+                    selectedGradeLabel.setText("Grade: " + (empGrade != null ? empGrade.getName() : "Sans grade"));
                     
-                selectedEmployeeLabel.setText("Employé: " + employee.getPlayerName());
-                selectedGradeLabel.setText("Grade: " + (empGrade != null ? empGrade.getName() : "Sans grade"));
-                
-                // Activer/désactiver les boutons selon les permissions
-                boolean canManageThisEmployee = userGrade != null && 
-                    ((empGrade == null && userGrade.getLevel() > 0) || 
-                     (empGrade != null && empGrade.getLevel() < userGrade.getLevel()));
-                     
-                changeGradeBtn.setEnabled(canChangeGrade && canManageThisEmployee);
-                fireBtn.setEnabled(canFire && canManageThisEmployee);
+                    // Activer/afficher les boutons selon les permissions et la hiérarchie
+                    boolean canManageThisEmployee = userGrade != null && 
+                        ((empGrade == null && userGrade.getLevel() > 0) || 
+                         (empGrade != null && empGrade.getLevel() < userGrade.getLevel()));
+                         
+                    boolean showChange = canChangeGrade && canManageThisEmployee;
+                    boolean showFire = canFire && canManageThisEmployee;
+                    
+                    changeGradeBtn.setEnabled(showChange);
+                    changeGradeBtn.setVisible(showChange);
+                    fireBtn.setEnabled(showFire);
+                    fireBtn.setVisible(showFire);
+                } else {
+                    // Aucune sélection : masquer les actions
+                    changeGradeBtn.setEnabled(false);
+                    changeGradeBtn.setVisible(false);
+                    fireBtn.setEnabled(false);
+                    fireBtn.setVisible(false);
+                }
             }
         });
         
@@ -279,11 +522,7 @@ public class CompanyLayout extends Layout
             }
         });
         
-        recruitBtn.setClickListener((mx, my, mb) -> {
-            if(mb == 0) {
-                handleAddEmployee(c, playerField, gradeCombo);
-            }
-        });
+        // (Gestion du click du bouton recruter déplacée dans le bloc conditionnel)
         
         content.height = 170;
     }
@@ -418,6 +657,60 @@ public class CompanyLayout extends Layout
     }
 
     // Méthodes d'action simplifiées
+    private void handlePersonalDeposit(Company c, String amountStr) {
+        try {
+            double amount = Double.parseDouble(amountStr);
+            if (amount <= 0) {
+                app.openDialog(new Dialog.Message("Montant invalide"));
+                return;
+            }
+            
+            String playerUuid = repo.getCurrentPlayerUuid();
+            
+            if (EconomyManager.transferToCompany(playerUuid, companyId, amount)) {
+                app.openDialog(new Dialog.Message("Dépôt de " + EconomyManager.formatMoney(amount) + " effectué"));
+                Minecraft.getMinecraft().addScheduledTask(this::build);
+            } else {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Solde personnel insuffisant"));
+            }
+        } catch (NumberFormatException e) {
+            app.openDialog(new Dialog.Message("Montant invalide"));
+        }
+    }
+    
+    private void handlePersonalWithdraw(Company c, String amountStr) {
+        try {
+            double amount = Double.parseDouble(amountStr);
+            if (amount <= 0) {
+                app.openDialog(new Dialog.Message("Montant invalide"));
+                return;
+            }
+            
+            // Vérifier les permissions et limites
+            Grade userGrade = currentUserGrade(c);
+            if (userGrade == null || amount > userGrade.getPermissions().transferLimit) {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Limite de retrait dépassée (" + EconomyManager.formatMoney(userGrade != null ? userGrade.getPermissions().transferLimit : 0) + ")"));
+                return;
+            }
+            
+            if (c.getBalance() < amount) {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Fonds insuffisants dans l'entreprise"));
+                return;
+            }
+            
+            String playerUuid = repo.getCurrentPlayerUuid();
+            
+            if (EconomyManager.withdrawFromCompany(companyId, playerUuid, amount)) {
+                app.openDialog(new Dialog.Message("Retrait de " + EconomyManager.formatMoney(amount) + " effectué"));
+                Minecraft.getMinecraft().addScheduledTask(this::build);
+            } else {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors du retrait"));
+            }
+        } catch (NumberFormatException e) {
+            app.openDialog(new Dialog.Message("Montant invalide"));
+        }
+    }
+
     private void handleTransfer(Company c, String toName, String amountStr) {
         try {
             double amount = Double.parseDouble(amountStr);
@@ -433,10 +726,110 @@ public class CompanyLayout extends Layout
                 return;
             }
 
-            repo.transfer(companyId, toId, amount, "Virement vers " + toName);
-            Minecraft.getMinecraft().addScheduledTask(this::build);
+            // Envoyer l'opération au serveur
+            NBTTagCompound d = new NBTTagCompound();
+            d.setString("fromCompanyId", companyId);
+            d.setString("toCompanyId", toId);
+            d.setDouble("amount", amount);
+
+            TaskManager.sendTask(new TaskBusinessAction().op("transfer", d).setCallback((nbt, success) -> {
+                Minecraft.getMinecraft().addScheduledTask(() -> {
+                    if(success) {
+                        app.openDialog(new Dialog.Message("Virement effectué vers " + toName));
+                        build();
+                    } else {
+                        app.openDialog(new Dialog.Message(TextFormatting.RED + "Échec du virement (fonds insuffisants ?)"));
+                    }
+                });
+            }));
         } catch (NumberFormatException e) {
             app.openDialog(new Dialog.Message("Montant invalide"));
+        }
+    }
+
+    private void handlePayPlayer(Company c, String playerName, String amountStr) {
+        try {
+            double amount = Double.parseDouble(amountStr);
+            if (amount <= 0) {
+                app.openDialog(new Dialog.Message("Montant invalide"));
+                return;
+            }
+            
+            if (playerName.isEmpty()) {
+                app.openDialog(new Dialog.Message("Nom du joueur requis"));
+                return;
+            }
+            
+            // Vérifier les permissions et limites
+            Grade userGrade = currentUserGrade(c);
+            if (userGrade == null || amount > userGrade.getPermissions().transferLimit) {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Limite de virement dépassée (" + EconomyManager.formatMoney(userGrade != null ? userGrade.getPermissions().transferLimit : 0) + ")"));
+                return;
+            }
+            
+            if (c.getBalance() < amount) {
+                app.openDialog(new Dialog.Message(TextFormatting.RED + "Solde de l'entreprise insuffisant"));
+                return;
+            }
+            
+            // Confirmation du paiement
+            Dialog.Confirmation confirm = new Dialog.Confirmation(
+                "Confirmer le paiement\n\n" +
+                "Payer " + EconomyManager.formatMoney(amount) + " à " + playerName + " ?\n" +
+                "Cette somme sera déduite des fonds de l'entreprise."
+            );
+            
+            confirm.setPositiveListener((mx, my, mb) -> {
+                // Effectuer le paiement via EconomyManager
+                if (EconomyManager.depositToPlayer(playerName, amount)) {
+                    // Déduire de l'entreprise et enregistrer la transaction
+                    c.setBalance(c.getBalance() - amount);
+                    c.getTransactions().add(new BizTransaction(
+                        java.util.UUID.randomUUID().toString(),
+                        System.currentTimeMillis(),
+                        companyId,
+                        "PLAYER_" + playerName,
+                        amount,
+                        BizTransaction.Type.PAYMENT,
+                        "Paiement à " + playerName
+                    ));
+                    
+                    app.openDialog(new Dialog.Message("Paiement de " + EconomyManager.formatMoney(amount) + " effectué à " + playerName));
+                    Minecraft.getMinecraft().addScheduledTask(this::build);
+                } else {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Erreur lors du paiement (joueur introuvable ou hors ligne ?)"));
+                }
+            });
+            
+            app.openDialog(confirm);
+            
+        } catch (NumberFormatException e) {
+            app.openDialog(new Dialog.Message("Montant invalide"));
+        }
+    }
+
+    private String getTransactionIcon(BizTransaction.Type type) {
+        switch (type) {
+            case TRANSFER_IN: return "⬅";
+            case TRANSFER_OUT: return "➡";
+            case PAYMENT: return "💳";
+            case DEPOSIT: return "⬇";
+            case WITHDRAWAL: return "⬆";
+            default: return "•";
+        }
+    }
+
+    private int getTransactionColor(BizTransaction.Type type) {
+        switch (type) {
+            case TRANSFER_IN:
+            case DEPOSIT:
+                return 0x00AA00; // Vert pour les entrées
+            case TRANSFER_OUT:
+            case PAYMENT:
+            case WITHDRAWAL:
+                return 0xAA0000; // Rouge pour les sorties
+            default:
+                return 0x000000; // Noir par défaut
         }
     }
 
@@ -503,7 +896,8 @@ public class CompanyLayout extends Layout
                 .toArray(Grade[]::new);
                 
             if(availableGrades.length > 0) {
-                openGradeSelectionDialog(employee, currentGrade, availableGrades, canFire);
+                boolean isFounder = userGrade.getLevel() == 100;
+                openGradeSelectionDialogWithFounderOption(employee, currentGrade, availableGrades, canFire, isFounder, company, userGrade);
             } else if(canFire) {
                 // Seulement licenciement possible
                 confirmFireEmployee(employee);
@@ -516,7 +910,7 @@ public class CompanyLayout extends Layout
         }
     }
     
-    private void openGradeSelectionDialog(EmployeeRecord employee, Grade currentGrade, Grade[] availableGrades, boolean canFire) {
+    private void openGradeSelectionDialogWithFounderOption(EmployeeRecord employee, Grade currentGrade, Grade[] availableGrades, boolean canFire, boolean isFounder, Company company, Grade userGrade) {
         // Créer un dialogue personnalisé pour la sélection de grade
         Dialog gradeDialog = new Dialog() {
             @Override
@@ -527,7 +921,7 @@ public class CompanyLayout extends Layout
                 setTitle("Gestion d'employé");
                 
                 // Créer le layout personnalisé
-                Layout content = new Layout(280, 120);
+                Layout content = new Layout(300, 140);
                 
                 String currentGradeText = currentGrade != null ? currentGrade.getName() : "Sans grade";
                 
@@ -582,11 +976,103 @@ public class CompanyLayout extends Layout
                     content.width = 250;
                 }
                 
+                // Option spéciale Fondateur (niveau 100): proposer transfert du rôle
+                if(isFounder) {
+                    boolean targetIsFounder = currentGrade != null && currentGrade.getLevel() == 100;
+                    if(!targetIsFounder) {
+                        Button makeFounderBtn = new Button(10, 102, 230, 18, "Définir en tant que Fondateur", Icons.STAR_ON);
+                        makeFounderBtn.setClickListener((mx, my, mb) -> {
+                            if(mb == 0) {
+                                close();
+                                handleTransferFounder(employee, company);
+                            }
+                        });
+                        content.addComponent(makeFounderBtn);
+                        content.height = 140;
+                    }
+                }
+                
                 setLayout(content);
             }
         };
         
         app.openDialog(gradeDialog);
+    }
+
+    private void handleTransferFounder(EmployeeRecord targetEmployee, Company company) {
+        // Trouver le grade Fondateur (niveau 100) et le grade juste en dessous
+        Grade founderGrade = company.getGrades().stream()
+            .filter(g -> g.getLevel() == 100)
+            .findFirst().orElse(null);
+        if(founderGrade == null) {
+            app.openDialog(new Dialog.Message(TextFormatting.RED + "Grade 'Fondateur' introuvable (niveau 100)"));
+            return;
+        }
+
+        Grade nextBelow = company.getGrades().stream()
+            .filter(g -> g.getLevel() < 100)
+            .max(Comparator.comparingInt(Grade::getLevel))
+            .orElse(null);
+        if(nextBelow == null) {
+            app.openDialog(new Dialog.Message(TextFormatting.RED + "Aucun grade disponible sous Fondateur"));
+            return;
+        }
+
+        // Empêcher le transfert à soi-même
+        String currentUserUuid = repo.getCurrentPlayerUuid();
+        if(targetEmployee.getPlayerUuid().equals(currentUserUuid)) {
+            app.openDialog(new Dialog.Message(TextFormatting.RED + "Vous êtes déjà Fondateur"));
+            return;
+        }
+
+        // Message de confirmation explicite
+        String msg = "Transfert de Fondateur\n\n" +
+                "Vous allez attribuer le rôle de Fondateur à:\n" +
+                "👤 " + targetEmployee.getPlayerName() + "\n\n" +
+                "Il ne peut y avoir qu'un seul Fondateur.\n" +
+                "Conséquences:\n" +
+                "• Votre grade deviendra: '" + nextBelow.getName() + "'.\n" +
+                "Confirmer ?";
+
+        Dialog.Confirmation confirm = new Dialog.Confirmation(msg);
+        confirm.setPositiveListener((mx, my, mb) -> {
+            // 1) Promouvoir la cible en Fondateur
+            NBTTagCompound promote = new NBTTagCompound();
+            promote.setString("companyId", companyId);
+            promote.setString("playerUuid", targetEmployee.getPlayerUuid());
+            promote.setString("gradeId", founderGrade.getId());
+
+            TaskManager.sendTask(new TaskBusinessAction().op("change_grade", promote).setCallback((nbt1, success1) -> {
+                if(!success1) {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Échec du transfert de Fondateur (promotion)"));
+                    return;
+                }
+
+                // 2) Se rétrograder au grade juste en dessous
+                EmployeeRecord me = company.getEmployees().stream()
+                    .filter(e -> e.getPlayerUuid().equals(currentUserUuid))
+                    .findFirst().orElse(null);
+                if(me == null) {
+                    app.openDialog(new Dialog.Message(TextFormatting.RED + "Votre fiche employé est introuvable"));
+                    return;
+                }
+
+                NBTTagCompound demote = new NBTTagCompound();
+                demote.setString("companyId", companyId);
+                demote.setString("playerUuid", me.getPlayerUuid());
+                demote.setString("gradeId", nextBelow.getId());
+
+                TaskManager.sendTask(new TaskBusinessAction().op("change_grade", demote).setCallback((nbt2, success2) -> {
+                    if(success2) {
+                        app.openDialog(new Dialog.Message("Le rôle de Fondateur a été transféré à " + targetEmployee.getPlayerName() + "."));
+                        Minecraft.getMinecraft().addScheduledTask(this::build);
+                    } else {
+                        app.openDialog(new Dialog.Message(TextFormatting.RED + "Promotion réussie mais rétrogradation impossible"));
+                    }
+                }));
+            }));
+        });
+        app.openDialog(confirm);
     }
     
     private void handleChangeEmployeeGrade(EmployeeRecord employee, Grade newGrade) {
@@ -608,10 +1094,17 @@ public class CompanyLayout extends Layout
     }
     
     private void confirmFireEmployee(EmployeeRecord employee) {
-        String message = "⚠️ CONFIRMATION DE LICENCIEMENT ⚠️\n\n";
-        message += "Êtes-vous sûr de vouloir licencier :\n";
-        message += "👤 " + employee.getPlayerName() + " ?\n\n";
-        message += "Cette action est irréversible !";
+        Company c = repo.getCompany(companyId).orElse(null);
+        Grade empGrade = null;
+        if(c != null) {
+            empGrade = c.getGrades().stream().filter(g -> g.getId().equals(employee.getGradeId())).findFirst().orElse(null);
+        }
+        String gradeText = empGrade != null ? empGrade.getName() : "Sans grade";
+
+        String message = "CONFIRMATION DE LICENCIEMENT\n\n" +
+                "Employé: " + employee.getPlayerName() + "\n" +
+                "Grade actuel: " + gradeText + "\n\n" +
+                "Voulez-vous vraiment licencier cet employé ?\n";
         
         Dialog.Confirmation dialog = new Dialog.Confirmation(message);
         dialog.setPositiveListener((mouseX, mouseY, mouseButton) -> {

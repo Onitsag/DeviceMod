@@ -43,8 +43,19 @@ public class BusinessData
 
     public synchronized Company createCompany(String name, String ownerUuid, String ownerName)
     {
+        if(name == null) name = "";
+        final String normalized = name.trim();
+        if(normalized.isEmpty()) return null;
+        // Unicité du nom (insensible à la casse)
+        boolean exists = idToCompany.values().stream()
+            .anyMatch(c -> c.getName() != null && c.getName().trim().equalsIgnoreCase(normalized));
+        if(exists)
+        {
+            System.err.println("[BusinessData] Création refusée: une entreprise nommée '" + normalized + "' existe déjà");
+            return null;
+        }
         String id = UUID.randomUUID().toString();
-        Company c = new Company(id, name, ownerUuid);
+        Company c = new Company(id, normalized, ownerUuid);
         
         // Créer la hiérarchie de grades par défaut
         // 1. Fondateur (niveau 100) - Toutes les permissions

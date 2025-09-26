@@ -7,7 +7,7 @@ import java.util.Date;
 
 public class BizTransaction
 {
-    public enum Type { TRANSFER_IN, TRANSFER_OUT }
+    public enum Type { TRANSFER_IN, TRANSFER_OUT, PAYMENT, DEPOSIT, WITHDRAWAL }
 
     private String id;
     private long timestamp;
@@ -36,6 +36,15 @@ public class BizTransaction
         String sign = type == Type.TRANSFER_IN ? "+" : "-";
         return date + " " + sign + String.format("%.2f", amount) + "€ - " + description;
     }
+
+    // Getters
+    public String getId() { return id; }
+    public long getTimestamp() { return timestamp; }
+    public String getFromCompanyId() { return fromCompanyId; }
+    public String getToCompanyId() { return toCompanyId; }
+    public double getAmount() { return amount; }
+    public Type getType() { return type; }
+    public String getDescription() { return description; }
 
     public NBTTagCompound toTag()
     {

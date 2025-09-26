@@ -45,12 +45,14 @@ import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.registry.EntityRegistry;
 import org.apache.logging.log4j.Logger;
 import fr.onitsag.faritech.programs.police.task.TaskAddPoliceReport;
 import fr.onitsag.faritech.programs.police.task.TaskDeletePoliceReport;
 import fr.onitsag.faritech.programs.police.task.TaskRequestPoliceReports;
+import fr.onitsag.faritech.economy.EconomyManager;
 
 @Mod(modid = Reference.MOD_ID, name = Reference.NAME, version = Reference.VERSION, acceptedMinecraftVersions = Reference.WORKING_MC_VERSION)
 public class FariTechMod 
@@ -63,7 +65,7 @@ public class FariTechMod
 	
 	public static final CreativeTabs TAB_DEVICE = new FariTechTab("faritechTabDevice");
 
-	private static Logger logger;
+	public static Logger logger;
 
 	public static final boolean DEVELOPER_MODE = false;
 
@@ -106,6 +108,13 @@ public class FariTechMod
 
 		proxy.init();
 	}
+
+    @EventHandler
+    public void onServerStarting(FMLServerStartingEvent event)
+    {
+        // Initialiser l'économie (Vault via Bukkit) quand les plugins sont chargés
+        EconomyManager.init();
+    }
 	
 	@EventHandler
 	public void postInit(FMLPostInitializationEvent event) 

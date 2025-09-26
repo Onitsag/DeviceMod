@@ -25,6 +25,7 @@ public class TaskBusinessAction extends Task
     // champs envoyés
     private String op;
     private NBTTagCompound payload;
+    private double responseBalance = -1;
 
     public TaskBusinessAction op(String operation, NBTTagCompound payload)
     {
@@ -55,6 +56,9 @@ public class TaskBusinessAction extends Task
                 Company company = BusinessData.INSTANCE.createCompany(name, player.getUniqueID().toString(), player.getName());
                 if(company != null) {
                     ok = true;
+                } else {
+                    // Nom déjà pris ou invalide
+                    ok = false;
                 }
                 break;
             }
@@ -228,7 +232,108 @@ public class TaskBusinessAction extends Task
                 if(from != null && to != null && amount > 0 && from.getBalance() >= amount) {
                     from.setBalance(from.getBalance() - amount);
                     to.setBalance(to.getBalance() + amount);
+                    long now = System.currentTimeMillis();
+                    from.getTransactions().add(new fr.onitsag.faritech.programs.business.model.BizTransaction(
+                        java.util.UUID.randomUUID().toString(), now,
+                        from.getId(), to.getId(), amount,
+                        fr.onitsag.faritech.programs.business.model.BizTransaction.Type.TRANSFER_OUT,
+                        "Virement vers " + to.getName()
+                    ));
+                    to.getTransactions().add(new fr.onitsag.faritech.programs.business.model.BizTransaction(
+                        java.util.UUID.randomUUID().toString(), now,
+                        from.getId(), to.getId(), amount,
+                        fr.onitsag.faritech.programs.business.model.BizTransaction.Type.TRANSFER_IN,
+                        "Virement de " + from.getName()
+                    ));
                     ok = true;
+                }
+                break;
+            }
+            case "player_deposit_to_company":
+            {
+                Company company = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
+                double amount = d.getDouble("amount");
+                if(company != null && amount > 0)
+                {
+                    // Débiter le joueur via Vault (côté serveur)
+                    String playerUuid = player.getUniqueID().toString();
+                    // Vérifier solde joueur
+                    double bal = fr.onitsag.faritech.economy.EconomyManager.getPlayerBalance(playerUuid);
+                    if(bal < amount) {
+                        ok = false;
+                        break;
+                    }
+                    boolean debited = fr.onitsag.faritech.economy.EconomyManager.withdrawFromPlayer(playerUuid, amount);
+                    if(debited)
+                    {
+                        company.setBalance(company.getBalance() + amount);
+                        company.getTransactions().add(new fr.onitsag.faritech.programs.business.model.BizTransaction(
+                            java.util.UUID.randomUUID().toString(),
+                            System.currentTimeMillis(),
+                            "PERSONAL_" + playerUuid,
+                            company.getId(),
+                            amount,
+                            fr.onitsag.faritech.programs.business.model.BizTransaction.Type.TRANSFER_IN,
+                            "Dépôt de " + player.getName()
+                        ));
+                        ok = true;
+                    }
+                }
+                break;
+            }
+            case "company_withdraw_to_player":
+            {
+                Company company = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
+                double amount = d.getDouble("amount");
+                if(company != null && amount > 0 && company.getBalance() >= amount)
+                {
+                    String playerUuid = player.getUniqueID().toString();
+                    boolean credited = fr.onitsag.faritech.economy.EconomyManager.depositToPlayer(playerUuid, amount);
+                    if(credited)
+                    {
+                        company.setBalance(company.getBalance() - amount);
+                        company.getTransactions().add(new fr.onitsag.faritech.programs.business.model.BizTransaction(
+                            java.util.UUID.randomUUID().toString(),
+                            System.currentTimeMillis(),
+                            company.getId(),
+                            "PERSONAL_" + playerUuid,
+                            amount,
+                            fr.onitsag.faritech.programs.business.model.BizTransaction.Type.TRANSFER_OUT,
+                            "Retrait de " + player.getName()
+                        ));
+                        ok = true;
+                    }
+                }
+                break;
+            }
+            case "company_pay_player":
+            {
+                Company company = BusinessData.INSTANCE.getCompany(d.getString("companyId"));
+                String targetName = d.getString("targetName");
+                double amount = d.getDouble("amount");
+                if(company != null && amount > 0 && company.getBalance() >= amount && targetName != null && !targetName.isEmpty())
+                {
+                    // Trouver le joueur cible par nom (en ligne)
+                    net.minecraft.entity.player.EntityPlayerMP target = player.getServer().getPlayerList().getPlayerByUsername(targetName);
+                    if(target != null)
+                    {
+                        String targetUuid = target.getUniqueID().toString();
+                        boolean credited = fr.onitsag.faritech.economy.EconomyManager.depositToPlayer(targetUuid, amount);
+                        if(credited)
+                        {
+                            company.setBalance(company.getBalance() - amount);
+                            company.getTransactions().add(new fr.onitsag.faritech.programs.business.model.BizTransaction(
+                                java.util.UUID.randomUUID().toString(),
+                                System.currentTimeMillis(),
+                                company.getId(),
+                                "PLAYER_" + targetName,
+                                amount,
+                                fr.onitsag.faritech.programs.business.model.BizTransaction.Type.PAYMENT,
+                                "Paiement à " + targetName
+                            ));
+                            ok = true;
+                        }
+                    }
                 }
                 break;
             }
@@ -303,12 +408,35 @@ public class TaskBusinessAction extends Task
                 }
                 break;
             }
+            case "get_vault_balance":
+            {
+                // Retourner le solde Vault réel du joueur appelant
+                String playerUuid = player.getUniqueID().toString();
+                String playerName = player.getName();
+                try {
+                    double bal = fr.onitsag.faritech.economy.EconomyManager.getPlayerBalance(playerUuid);
+                    this.responseBalance = bal;
+                    ok = true;
+                    System.out.println("[FariTech] get_vault_balance pour " + playerName + ": " + bal + "€");
+                } catch (Exception e) {
+                    System.err.println("[FariTech] Erreur get_vault_balance pour " + playerName + ": " + e.getMessage());
+                    e.printStackTrace();
+                    // Même en cas d'erreur, on retourne 0 et succès pour éviter le blocage de l'interface
+                    this.responseBalance = 0.0;
+                    ok = true;
+                }
+                break;
+            }
         }
 
         if(ok) setSuccessful();
         if(ok)
         {
-            BusinessData.INSTANCE.broadcastState();
+            // Ne pas broadcaster pour get_vault_balance qui est juste une lecture
+            if(!"get_vault_balance".equals(operation))
+            {
+                BusinessData.INSTANCE.broadcastState();
+            }
         }
     }
 
@@ -317,7 +445,18 @@ public class TaskBusinessAction extends Task
     {
         if(isSucessful())
         {
-            nbt.setTag("data", BusinessData.INSTANCE.toNetworkTag());
+            // Ajouter un champ optionnel balance pour certaines opérations (get_vault_balance)
+            if(this.responseBalance >= 0)
+            {
+                nbt.setDouble("balance", this.responseBalance);
+            }
+            
+            // Inclure l'état business seulement pour les opérations qui modifient les données
+            // Ne pas envoyer pour get_vault_balance qui est juste une lecture
+            if(!"get_vault_balance".equals(this.op))
+            {
+                nbt.setTag("data", BusinessData.INSTANCE.toNetworkTag());
+            }
         }
     }
 
